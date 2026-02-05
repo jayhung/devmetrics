@@ -11,7 +11,7 @@ import {
   updateSyncRunProgress,
   completeSyncRun,
 } from "@/lib/db";
-import { fetchCommits, fetchPullRequests, fetchReviews, getRateLimit, RateLimitError } from "@/lib/github";
+import { fetchCommits, fetchPullRequests, fetchReviews, getRateLimit, RateLimitError, GitHubConfigError } from "@/lib/github";
 
 interface SyncEvent {
   type: "start" | "repo_start" | "progress" | "repo_done" | "complete" | "error";
@@ -223,8 +223,14 @@ export async function POST(request: NextRequest) {
           completeSyncRun(syncRunId, status, error instanceof Error ? error.message : String(error));
         }
 
-        // provide helpful error message for rate limit errors
-        if (error instanceof RateLimitError) {
+        // provide helpful error messages for known error types
+        if (error instanceof GitHubConfigError) {
+          send({
+            type: "error",
+            message: error.message,
+            data: { errorType: "config" },
+          });
+        } else if (error instanceof RateLimitError) {
           send({
             type: "error",
             message: `Rate limit exceeded. ${completedRepos > 0 ? `Completed ${completedRepos} repo(s) before hitting limit.` : ""} Try again after ${error.resetAt.toLocaleTimeString()}.`,
