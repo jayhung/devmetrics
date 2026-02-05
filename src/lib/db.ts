@@ -5,6 +5,18 @@ const dbPath = path.join(process.cwd(), "data", "dashboard.db");
 
 let db: Database.Database | null = null;
 
+/**
+ * Gets the SQLite database instance, initializing it if needed.
+ * Uses WAL mode for better concurrent read performance.
+ * 
+ * Database schema:
+ * - repos: tracked repositories (id, owner, name, full_name, added_at)
+ * - commits: commit history with stats (sha, repo_id, author_login, additions, deletions, etc.)
+ * - pull_requests: PR data (id, repo_id, author_login, state, additions, deletions, etc.)
+ * - reviews: PR review data (id, pr_id, reviewer_login, state, submitted_at)
+ * - repo_sync_state: tracks last sync time per repo
+ * - sync_runs: history of sync operations
+ */
 export function getDb(): Database.Database {
   if (!db) {
     db = new Database(dbPath);
@@ -110,11 +122,12 @@ function initSchema() {
   `);
 }
 
-// repo queries
+/** Returns all tracked repositories, ordered by most recently added */
 export function getRepos() {
   return getDb().prepare("SELECT * FROM repos ORDER BY added_at DESC").all();
 }
 
+/** Adds a repository to track. Ignores if already exists. */
 export function addRepo(owner: string, name: string) {
   const fullName = `${owner}/${name}`;
   return getDb()
@@ -122,6 +135,7 @@ export function addRepo(owner: string, name: string) {
     .run(owner, name, fullName);
 }
 
+/** Removes a repository and all its associated data (commits, PRs, reviews) */
 export function removeRepo(id: number) {
   const db = getDb();
   // delete related data first
@@ -131,6 +145,7 @@ export function removeRepo(id: number) {
   return db.prepare("DELETE FROM repos WHERE id = ?").run(id);
 }
 
+/** Finds a repository by its full name (owner/repo format) */
 export function getRepoByFullName(fullName: string) {
   return getDb().prepare("SELECT * FROM repos WHERE full_name = ?").get(fullName);
 }
