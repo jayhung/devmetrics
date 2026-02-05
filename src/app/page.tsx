@@ -9,6 +9,11 @@ import { SyncConsole } from "@/components/sync-console";
 import { ActivityChart } from "@/components/charts/activity-chart";
 import { ActivityStackedChart } from "@/components/charts/activity-stacked-chart";
 import { AuthorChart } from "@/components/charts/author-chart";
+import { PRAuthorChart } from "@/components/charts/pr-author-chart";
+import { ReviewAuthorChart } from "@/components/charts/review-author-chart";
+import { LinesChangedChart } from "@/components/charts/lines-changed-chart";
+import { PRActivityChart } from "@/components/charts/pr-activity-chart";
+import { ReviewActivityChart } from "@/components/charts/review-activity-chart";
 import { GitCommit, GitPullRequest, Users, Plus, Minus, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
 import { DateRange } from "react-day-picker";
 
@@ -51,6 +56,9 @@ interface Metrics {
   reviewsByReviewer: { reviewer_login: string; total_reviews: number; approvals: number }[];
   activity: { date: string; commits: number }[];
   activityByAuthor: { date: string; author_login: string; commits: number }[];
+  prActivity: { date: string; opened: number; merged: number }[];
+  reviewActivity: { date: string; reviews: number; approvals: number }[];
+  linesChanged: { date: string; additions: number; deletions: number }[];
   dataRange: { earliest_commit: string | null; latest_commit: string | null };
   syncState: { earliest_sync: string | null; latest_sync: string | null; synced_repos: number; total_repos: number };
   authorMetrics: AuthorMetric[];
@@ -471,7 +479,7 @@ export default function Dashboard() {
       </div>
 
       {/* charts */}
-      <div className="grid gap-4 md:grid-cols-2">
+      <div className="grid gap-6 md:grid-cols-2">
         <Card>
           <CardHeader>
             <CardTitle>Top Contributors</CardTitle>
@@ -487,7 +495,7 @@ export default function Dashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Activity Over Time</CardTitle>
+            <CardTitle>Commit Activity</CardTitle>
           </CardHeader>
           <CardContent>
             {metrics.activity.length > 0 ? (
@@ -498,9 +506,74 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
+        <Card>
+          <CardHeader>
+            <CardTitle>PRs by Author</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {metrics.prsByAuthor.length > 0 ? (
+              <PRAuthorChart data={metrics.prsByAuthor} />
+            ) : (
+              <p className="text-muted-foreground text-center py-8">No PR data</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Reviews by Reviewer</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {metrics.reviewsByReviewer.length > 0 ? (
+              <ReviewAuthorChart data={metrics.reviewsByReviewer} />
+            ) : (
+              <p className="text-muted-foreground text-center py-8">No review data</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>PR Activity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {metrics.prActivity.length > 0 ? (
+              <PRActivityChart data={metrics.prActivity} />
+            ) : (
+              <p className="text-muted-foreground text-center py-8">No PR activity data</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Review Activity</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {metrics.reviewActivity.length > 0 ? (
+              <ReviewActivityChart data={metrics.reviewActivity} />
+            ) : (
+              <p className="text-muted-foreground text-center py-8">No review activity data</p>
+            )}
+          </CardContent>
+        </Card>
+
         <Card className="md:col-span-2">
           <CardHeader>
-            <CardTitle>Activity by Author</CardTitle>
+            <CardTitle>Lines Changed Over Time</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {metrics.linesChanged.length > 0 ? (
+              <LinesChangedChart data={metrics.linesChanged} />
+            ) : (
+              <p className="text-muted-foreground text-center py-8">No line change data</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle>Commits by Author Over Time</CardTitle>
           </CardHeader>
           <CardContent>
             {metrics.activityByAuthor.length > 0 ? (
