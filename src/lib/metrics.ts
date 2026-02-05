@@ -589,3 +589,106 @@ export function getActivityByAuthor(filters: Filters = {}) {
     )
     .all(...params) as { date: string; author_login: string; commits: number }[];
 }
+
+/** Returns daily PR counts (opened and merged) for time-series chart */
+export function getPRActivityOverTime(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("created_at", filters);
+  const repoFilter = buildRepoFilter("repo_id", filters);
+
+  const whereClause: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  const where = whereClause.length > 0 ? `WHERE ${whereClause.join(" AND ")}` : "";
+
+  return db
+    .prepare(
+      `SELECT 
+        DATE(created_at) as date,
+        COUNT(*) as opened,
+        COUNT(CASE WHEN merged_at IS NOT NULL THEN 1 END) as merged
+       FROM pull_requests
+       ${where}
+       GROUP BY DATE(created_at)
+       ORDER BY date ASC`
+    )
+    .all(...params) as { date: string; opened: number; merged: number }[];
+}
+
+/** Returns daily review counts for time-series chart */
+export function getReviewActivityOverTime(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("r.submitted_at", filters);
+  const repoFilter = buildRepoFilter("pr.repo_id", filters);
+
+  const whereClause: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  const where = whereClause.length > 0 ? `WHERE ${whereClause.join(" AND ")}` : "";
+
+  return db
+    .prepare(
+      `SELECT 
+        DATE(r.submitted_at) as date,
+        COUNT(*) as reviews,
+        COUNT(CASE WHEN r.state = 'APPROVED' THEN 1 END) as approvals
+       FROM reviews r
+       JOIN pull_requests pr ON r.pr_id = pr.id
+       ${where}
+       GROUP BY DATE(r.submitted_at)
+       ORDER BY date ASC`
+    )
+    .all(...params) as { date: string; reviews: number; approvals: number }[];
+}
+
+/** Returns daily line changes (additions/deletions) for time-series chart */
+export function getLinesChangedOverTime(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("committed_at", filters);
+  const repoFilter = buildRepoFilter("repo_id", filters);
+
+  const whereClause: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  const where = whereClause.length > 0 ? `WHERE ${whereClause.join(" AND ")}` : "";
+
+  return db
+    .prepare(
+      `SELECT 
+        DATE(committed_at) as date,
+        COALESCE(SUM(additions), 0) as additions,
+        COALESCE(SUM(deletions), 0) as deletions
+       FROM commits
+       ${where}
+       GROUP BY DATE(committed_at)
+       ORDER BY date ASC`
+    )
+    .all(...params) as { date: string; additions: number; deletions: number }[];
+}

@@ -7,6 +7,9 @@ import {
   getReviewsByReviewer,
   getActivityOverTime,
   getActivityByAuthor,
+  getPRActivityOverTime,
+  getReviewActivityOverTime,
+  getLinesChangedOverTime,
   getDataRange,
   getSyncStateForRepos,
   getAuthorMetrics,
@@ -26,19 +29,35 @@ export async function GET(request: NextRequest) {
     const filters = { start, end, repoIds };
     const repoOnlyFilters = { repoIds }; // for data range/sync state (ignore date filter)
 
-    const [summary, commitsByAuthor, commitsByAuthorAndRepo, prsByAuthor, reviewsByReviewer, activity, activityByAuthor, dataRange, syncState, authorMetrics] =
-      await Promise.all([
-        getSummaryStats(filters),
-        getCommitsByAuthor(filters),
-        getCommitsByAuthorAndRepo(filters),
-        getPRsByAuthor(filters),
-        getReviewsByReviewer(filters),
-        getActivityOverTime(filters),
-        getActivityByAuthor(filters),
-        getDataRange(repoOnlyFilters),
-        getSyncStateForRepos(repoOnlyFilters),
-        getAuthorMetrics(filters),
-      ]);
+    const [
+      summary,
+      commitsByAuthor,
+      commitsByAuthorAndRepo,
+      prsByAuthor,
+      reviewsByReviewer,
+      activity,
+      activityByAuthor,
+      prActivity,
+      reviewActivity,
+      linesChanged,
+      dataRange,
+      syncState,
+      authorMetrics,
+    ] = await Promise.all([
+      getSummaryStats(filters),
+      getCommitsByAuthor(filters),
+      getCommitsByAuthorAndRepo(filters),
+      getPRsByAuthor(filters),
+      getReviewsByReviewer(filters),
+      getActivityOverTime(filters),
+      getActivityByAuthor(filters),
+      getPRActivityOverTime(filters),
+      getReviewActivityOverTime(filters),
+      getLinesChangedOverTime(filters),
+      getDataRange(repoOnlyFilters),
+      getSyncStateForRepos(repoOnlyFilters),
+      getAuthorMetrics(filters),
+    ]);
 
     const lastSyncRun = getLastSyncRun();
 
@@ -50,6 +69,9 @@ export async function GET(request: NextRequest) {
       reviewsByReviewer,
       activity,
       activityByAuthor,
+      prActivity,
+      reviewActivity,
+      linesChanged,
       dataRange,
       syncState,
       lastSyncRun,
