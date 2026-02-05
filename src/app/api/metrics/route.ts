@@ -6,7 +6,10 @@ import {
   getPRsByAuthor,
   getReviewsByReviewer,
   getActivityOverTime,
+  getDataRange,
+  getSyncStateForRepos,
 } from "@/lib/metrics";
+import { getLastSyncRun } from "@/lib/db";
 
 export async function GET(request: NextRequest) {
   try {
@@ -19,8 +22,9 @@ export async function GET(request: NextRequest) {
       : undefined;
 
     const filters = { start, end, repoIds };
+    const repoOnlyFilters = { repoIds }; // for data range/sync state (ignore date filter)
 
-    const [summary, commitsByAuthor, commitsByAuthorAndRepo, prsByAuthor, reviewsByReviewer, activity] =
+    const [summary, commitsByAuthor, commitsByAuthorAndRepo, prsByAuthor, reviewsByReviewer, activity, dataRange, syncState] =
       await Promise.all([
         getSummaryStats(filters),
         getCommitsByAuthor(filters),
@@ -28,7 +32,11 @@ export async function GET(request: NextRequest) {
         getPRsByAuthor(filters),
         getReviewsByReviewer(filters),
         getActivityOverTime(filters),
+        getDataRange(repoOnlyFilters),
+        getSyncStateForRepos(repoOnlyFilters),
       ]);
+
+    const lastSyncRun = getLastSyncRun();
 
     return NextResponse.json({
       summary,
@@ -37,6 +45,9 @@ export async function GET(request: NextRequest) {
       prsByAuthor,
       reviewsByReviewer,
       activity,
+      dataRange,
+      syncState,
+      lastSyncRun,
     });
   } catch (error) {
     console.error("Failed to get metrics:", error);

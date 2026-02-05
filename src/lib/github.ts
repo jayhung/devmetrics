@@ -55,24 +55,35 @@ export async function fetchCommits(
 export async function fetchPullRequests(
   owner: string,
   repo: string,
+  since?: string,
   state: "open" | "closed" | "all" = "all",
   perPage = 100
 ) {
   const prs = [];
   let page = 1;
+  const sinceDate = since ? new Date(since) : null;
 
   while (true) {
     const response = await octokit.pulls.list({
       owner,
       repo,
       state,
+      sort: "updated",
+      direction: "desc",
       per_page: perPage,
       page,
     });
 
     if (response.data.length === 0) break;
 
+    let foundOlder = false;
     for (const pr of response.data) {
+      // skip PRs older than since date (for incremental sync)
+      if (sinceDate && new Date(pr.updated_at) < sinceDate) {
+        foundOlder = true;
+        continue;
+      }
+
       // get detailed PR info for additions/deletions
       const detail = await octokit.pulls.get({
         owner,
@@ -94,6 +105,8 @@ export async function fetchPullRequests(
       });
     }
 
+    // stop if we found PRs older than since date
+    if (foundOlder) break;
     if (response.data.length < perPage) break;
     page++;
   }

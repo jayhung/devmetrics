@@ -248,6 +248,74 @@ export function getCommitsByAuthorAndRepo(filters: Filters = {}) {
     .all(...params);
 }
 
+// data range (min/max dates for commits)
+export function getDataRange(filters: Filters = {}) {
+  const db = getDb();
+  const repoFilter = buildRepoFilter("c.repo_id", filters);
+
+  const whereClause: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  const where = whereClause.length > 0 ? `WHERE ${whereClause.join(" AND ")}` : "";
+
+  const result = db
+    .prepare(
+      `SELECT 
+        MIN(c.committed_at) as earliest_commit,
+        MAX(c.committed_at) as latest_commit
+       FROM commits c
+       ${where}`
+    )
+    .get(...params) as { earliest_commit: string | null; latest_commit: string | null };
+
+  return result;
+}
+
+// sync state for selected repos
+export function getSyncStateForRepos(filters: Filters = {}) {
+  const db = getDb();
+  const repoFilter = buildRepoFilter("s.repo_id", filters);
+
+  const whereClause: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  const where = whereClause.length > 0 ? `WHERE ${whereClause.join(" AND ")}` : "";
+
+  const result = db
+    .prepare(
+      `SELECT 
+        MIN(s.last_commit_sync) as earliest_sync,
+        MAX(s.last_commit_sync) as latest_sync,
+        COUNT(s.repo_id) as synced_repos
+       FROM repo_sync_state s
+       ${where}`
+    )
+    .get(...params) as { earliest_sync: string | null; latest_sync: string | null; synced_repos: number };
+
+  // also count total repos for comparison
+  const repoFilter2 = buildRepoFilter("id", filters);
+  const totalRepos = db
+    .prepare(
+      `SELECT COUNT(*) as count FROM repos ${repoFilter2.condition ? `WHERE ${repoFilter2.condition}` : ""}`
+    )
+    .get(...(repoFilter2.params || [])) as { count: number };
+
+  return {
+    ...result,
+    total_repos: totalRepos.count,
+  };
+}
+
 // activity over time (daily commits)
 export function getActivityOverTime(filters: Filters = {}) {
   const db = getDb();

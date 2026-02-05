@@ -5,10 +5,17 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MultiSelect, SelectedChips, Option } from "@/components/ui/multi-select";
 import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { SyncConsole } from "@/components/sync-console";
 import { ActivityChart } from "@/components/charts/activity-chart";
 import { AuthorChart } from "@/components/charts/author-chart";
 import { GitCommit, GitPullRequest, Users, Plus, Minus, RefreshCw } from "lucide-react";
 import { DateRange } from "react-day-picker";
+
+interface SyncLog {
+  type: "start" | "repo_start" | "progress" | "repo_done" | "complete" | "error";
+  message: string;
+  timestamp: Date;
+}
 
 interface Repo {
   id: number;
@@ -29,6 +36,20 @@ interface Metrics {
   prsByAuthor: { author_login: string; total: number; merged: number }[];
   reviewsByReviewer: { reviewer_login: string; total_reviews: number; approvals: number }[];
   activity: { date: string; commits: number }[];
+  dataRange: { earliest_commit: string | null; latest_commit: string | null };
+  syncState: { earliest_sync: string | null; latest_sync: string | null; synced_repos: number; total_repos: number };
+  lastSyncRun?: {
+    id: number;
+    started_at: string;
+    completed_at: string | null;
+    status: string;
+    total_repos: number;
+    completed_repos: number;
+    total_commits: number;
+    total_prs: number;
+    total_reviews: number;
+    error_message: string | null;
+  };
 }
 
 const STORAGE_KEY = "devmetrics-filters";
@@ -63,6 +84,31 @@ function clearFilters() {
   localStorage.removeItem(STORAGE_KEY);
 }
 
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return "N/A";
+  return new Date(dateStr).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function formatRelativeTime(dateStr: string | null): string {
+  if (!dateStr) return "never";
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffMins = Math.floor(diffMs / 60000);
+  const diffHours = Math.floor(diffMs / 3600000);
+  const diffDays = Math.floor(diffMs / 86400000);
+
+  if (diffMins < 1) return "just now";
+  if (diffMins < 60) return `${diffMins}m ago`;
+  if (diffHours < 24) return `${diffHours}h ago`;
+  if (diffDays < 7) return `${diffDays}d ago`;
+  return formatDate(dateStr);
+}
+
 export default function Dashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [repos, setRepos] = useState<Repo[]>([]);
@@ -71,6 +117,8 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [filtersLoaded, setFiltersLoaded] = useState(false);
+  const [syncLogs, setSyncLogs] = useState<SyncLog[]>([]);
+  const [showSyncConsole, setShowSyncConsole] = useState(false);
 
   const repoOptions: Option[] = repos.map((r) => ({
     value: String(r.id),
@@ -139,11 +187,61 @@ export default function Dashboard() {
 
   const handleSync = async () => {
     setSyncing(true);
+    setSyncLogs([]);
+    setShowSyncConsole(true);
+
     try {
-      await fetch("/api/sync", { method: "POST", body: JSON.stringify({}) });
+      const response = await fetch("/api/sync", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          repoIds: selectedRepoIds.length > 0 ? selectedRepoIds.map(Number) : undefined,
+        }),
+      });
+
+      if (!response.body) {
+        throw new Error("No response body");
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n\n");
+        buffer = lines.pop() || "";
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const event = JSON.parse(line.slice(6));
+              setSyncLogs((prev) => [
+                ...prev,
+                { ...event, timestamp: new Date() },
+              ]);
+            } catch {
+              // ignore parse errors
+            }
+          }
+        }
+      }
+
       await fetchMetrics();
+      await fetchRepos();
     } catch (error) {
       console.error("Sync failed:", error);
+      setSyncLogs((prev) => [
+        ...prev,
+        {
+          type: "error",
+          message: `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
+          timestamp: new Date(),
+        },
+      ]);
     } finally {
       setSyncing(false);
     }
@@ -211,6 +309,46 @@ export default function Dashboard() {
           selected={selectedRepoIds}
           onRemove={(id) => setSelectedRepoIds(selectedRepoIds.filter((v) => v !== id))}
         />
+        {/* data info bar */}
+        <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
+          <span>
+            Data:{" "}
+            {metrics.dataRange.earliest_commit
+              ? `${formatDate(metrics.dataRange.earliest_commit)} – ${formatDate(metrics.dataRange.latest_commit)}`
+              : "No data"}
+          </span>
+          <span>
+            Synced:{" "}
+            {metrics.syncState.synced_repos > 0
+              ? formatRelativeTime(metrics.syncState.latest_sync)
+              : "never"}
+          </span>
+          <span>
+            {metrics.syncState.synced_repos}/{metrics.syncState.total_repos} repos
+          </span>
+          {metrics.lastSyncRun && (
+            <span
+              className={
+                metrics.lastSyncRun.status === "complete"
+                  ? "text-green-600"
+                  : metrics.lastSyncRun.status === "partial"
+                  ? "text-yellow-600"
+                  : metrics.lastSyncRun.status === "error"
+                  ? "text-red-600"
+                  : "text-blue-600"
+              }
+            >
+              Last sync:{" "}
+              {metrics.lastSyncRun.status === "running"
+                ? `running (${metrics.lastSyncRun.completed_repos}/${metrics.lastSyncRun.total_repos})`
+                : metrics.lastSyncRun.status === "complete"
+                ? "success"
+                : metrics.lastSyncRun.status === "partial"
+                ? `partial (${metrics.lastSyncRun.completed_repos}/${metrics.lastSyncRun.total_repos})`
+                : "failed"}
+            </span>
+          )}
+        </div>
       </div>
 
       {/* summary cards */}
@@ -331,6 +469,12 @@ export default function Dashboard() {
           </div>
         </CardContent>
       </Card>
+
+      <SyncConsole
+        logs={syncLogs}
+        isOpen={showSyncConsole}
+        onClose={() => setShowSyncConsole(false)}
+      />
     </div>
   );
 }
