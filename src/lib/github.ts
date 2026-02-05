@@ -289,7 +289,7 @@ export async function fetchPullRequests(
  */
 export async function fetchReviews(owner: string, repo: string, prNumber: number) {
   await throttle();
-  
+
   const response = await getOctokit().pulls.listReviews({
     owner,
     repo,
@@ -302,4 +302,47 @@ export async function fetchReviews(owner: string, repo: string, prNumber: number
     state: review.state,
     submitted_at: review.submitted_at || "",
   }));
+}
+
+/**
+ * Fetches repositories accessible to the authenticated user.
+ * Includes owned repos and repos from organizations the user belongs to.
+ * @param perPage - results per page (default 100)
+ * @throws {GitHubConfigError} if token is not configured
+ */
+export async function fetchAvailableRepos(perPage = 100) {
+  const client = getOctokit();
+  const repos: { id: number; full_name: string; owner: string; name: string; private: boolean }[] =
+    [];
+  let page = 1;
+
+  while (true) {
+    await throttle();
+
+    const response = await client.repos.listForAuthenticatedUser({
+      visibility: "all",
+      affiliation: "owner,collaborator,organization_member",
+      sort: "updated",
+      direction: "desc",
+      per_page: perPage,
+      page,
+    });
+
+    if (response.data.length === 0) break;
+
+    for (const repo of response.data) {
+      repos.push({
+        id: repo.id,
+        full_name: repo.full_name,
+        owner: repo.owner.login,
+        name: repo.name,
+        private: repo.private,
+      });
+    }
+
+    if (response.data.length < perPage) break;
+    page++;
+  }
+
+  return repos;
 }
