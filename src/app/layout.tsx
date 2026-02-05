@@ -4,8 +4,10 @@ import "./globals.css";
 
 const inter = Inter({ subsets: ["latin"] });
 
+const title = "Developer Metrics";
+
 export const metadata: Metadata = {
-  title: "Dev Metrics Dashboard",
+  title: `${title} Dashboard`,
   description: "GitHub developer productivity metrics",
 };
 
@@ -20,7 +22,7 @@ export default function RootLayout({
         <div className="min-h-screen bg-background">
           <header className="border-b">
             <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-              <h1 className="text-xl font-semibold">Dev Metrics</h1>
+              <h1 className="text-xl font-semibold">{title}</h1>
               <nav className="flex gap-4">
                 <a href="/" className="text-sm hover:text-primary">
                   Dashboard

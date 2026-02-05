@@ -8,7 +8,7 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { SyncConsole } from "@/components/sync-console";
 import { ActivityChart } from "@/components/charts/activity-chart";
 import { AuthorChart } from "@/components/charts/author-chart";
-import { GitCommit, GitPullRequest, Users, Plus, Minus, RefreshCw } from "lucide-react";
+import { GitCommit, GitPullRequest, Users, Plus, Minus, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
 import { DateRange } from "react-day-picker";
 
 interface SyncLog {
@@ -20,6 +20,19 @@ interface SyncLog {
 interface Repo {
   id: number;
   full_name: string;
+}
+
+interface AuthorMetric {
+  author_login: string;
+  repo: string;
+  commits: number;
+  additions: number;
+  deletions: number;
+  prs_opened: number;
+  prs_merged: number;
+  reviews_given: number;
+  avg_commit_size: number;
+  merge_rate: number;
 }
 
 interface Metrics {
@@ -38,6 +51,7 @@ interface Metrics {
   activity: { date: string; commits: number }[];
   dataRange: { earliest_commit: string | null; latest_commit: string | null };
   syncState: { earliest_sync: string | null; latest_sync: string | null; synced_repos: number; total_repos: number };
+  authorMetrics: AuthorMetric[];
   lastSyncRun?: {
     id: number;
     started_at: string;
@@ -51,6 +65,9 @@ interface Metrics {
     error_message: string | null;
   };
 }
+
+type SortColumn = "author_login" | "repo" | "commits" | "prs_opened" | "prs_merged" | "reviews_given" | "additions" | "deletions" | "avg_commit_size";
+type SortDirection = "asc" | "desc";
 
 const STORAGE_KEY = "devmetrics-filters";
 
@@ -119,11 +136,58 @@ export default function Dashboard() {
   const [filtersLoaded, setFiltersLoaded] = useState(false);
   const [syncLogs, setSyncLogs] = useState<SyncLog[]>([]);
   const [showSyncConsole, setShowSyncConsole] = useState(false);
+  const [sortColumn, setSortColumn] = useState<SortColumn>("commits");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
 
   const repoOptions: Option[] = repos.map((r) => ({
     value: String(r.id),
     label: r.full_name,
   }));
+
+  // sorting logic
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc");
+    } else {
+      setSortColumn(column);
+      setSortDirection("desc");
+    }
+  };
+
+  const sortedAuthorMetrics = metrics?.authorMetrics
+    ? [...metrics.authorMetrics].sort((a, b) => {
+        const aVal = a[sortColumn];
+        const bVal = b[sortColumn];
+        if (typeof aVal === "string" && typeof bVal === "string") {
+          return sortDirection === "asc"
+            ? aVal.localeCompare(bVal)
+            : bVal.localeCompare(aVal);
+        }
+        return sortDirection === "asc"
+          ? (aVal as number) - (bVal as number)
+          : (bVal as number) - (aVal as number);
+      })
+    : [];
+
+  const SortHeader = ({ column, label, className = "" }: { column: SortColumn; label: string; className?: string }) => (
+    <th
+      className={`py-2 px-4 cursor-pointer hover:bg-muted/50 select-none ${className}`}
+      onClick={() => handleSort(column)}
+    >
+      <div className={`flex items-center gap-1 ${className.includes("text-right") ? "justify-end" : ""}`}>
+        {label}
+        {sortColumn === column ? (
+          sortDirection === "asc" ? (
+            <ChevronUp className="h-3 w-3" />
+          ) : (
+            <ChevronDown className="h-3 w-3" />
+          )
+        ) : (
+          <span className="w-3" />
+        )}
+      </div>
+    </th>
+  );
 
   // load filters from localStorage on mount
   useEffect(() => {
@@ -443,19 +507,36 @@ export default function Dashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <th className="text-left py-2 px-4">Author</th>
-                  <th className="text-left py-2 px-4">Repository</th>
-                  <th className="text-right py-2 px-4">Commits</th>
-                  <th className="text-right py-2 px-4">Additions</th>
-                  <th className="text-right py-2 px-4">Deletions</th>
+                  <SortHeader column="author_login" label="Author" className="text-left" />
+                  <SortHeader column="repo" label="Repository" className="text-left" />
+                  <SortHeader column="commits" label="Commits" className="text-right" />
+                  <SortHeader column="prs_opened" label="PRs" className="text-right" />
+                  <SortHeader column="prs_merged" label="Merged" className="text-right" />
+                  <SortHeader column="reviews_given" label="Reviews" className="text-right" />
+                  <SortHeader column="avg_commit_size" label="Avg Lines" className="text-right" />
+                  <SortHeader column="additions" label="Additions" className="text-right" />
+                  <SortHeader column="deletions" label="Deletions" className="text-right" />
                 </tr>
               </thead>
               <tbody>
-                {metrics.commitsByAuthorAndRepo.map((row, idx) => (
-                  <tr key={`${row.author_login}-${row.repo}-${idx}`} className="border-b">
+                {sortedAuthorMetrics.map((row, idx) => (
+                  <tr key={`${row.author_login}-${row.repo}-${idx}`} className="border-b hover:bg-muted/30">
                     <td className="py-2 px-4 font-medium">{row.author_login}</td>
                     <td className="py-2 px-4 text-muted-foreground">{row.repo}</td>
-                    <td className="text-right py-2 px-4">{row.commits}</td>
+                    <td className="text-right py-2 px-4">{row.commits.toLocaleString()}</td>
+                    <td className="text-right py-2 px-4">{row.prs_opened}</td>
+                    <td className="text-right py-2 px-4" title={`${row.merge_rate}% merge rate`}>
+                      <span>{row.prs_merged}</span>
+                      {row.prs_opened > 0 && (
+                        <span className="text-xs text-muted-foreground ml-1">
+                          ({row.merge_rate}%)
+                        </span>
+                      )}
+                    </td>
+                    <td className="text-right py-2 px-4">{row.reviews_given}</td>
+                    <td className="text-right py-2 px-4 text-muted-foreground">
+                      {row.avg_commit_size.toLocaleString()}
+                    </td>
                     <td className="text-right py-2 px-4 text-green-600">
                       +{row.additions.toLocaleString()}
                     </td>

@@ -316,6 +316,206 @@ export function getSyncStateForRepos(filters: Filters = {}) {
   };
 }
 
+// combined author metrics (commits, PRs, reviews per author per repo)
+export function getAuthorMetrics(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("c.committed_at", filters);
+  const repoFilter = buildRepoFilter("c.repo_id", filters);
+
+  const whereClause: string[] = ["c.author_login IS NOT NULL"];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  // build PR date filter separately
+  const prDateFilter = buildDateFilter("pr.created_at", filters);
+  const prRepoFilter = buildRepoFilter("pr.repo_id", filters);
+  const prWhere: string[] = ["pr.author_login IS NOT NULL"];
+  const prParams: (string | number)[] = [];
+
+  if (prDateFilter.conditions.length > 0) {
+    prWhere.push(...prDateFilter.conditions);
+    prParams.push(...prDateFilter.params);
+  }
+  if (prRepoFilter.condition) {
+    prWhere.push(prRepoFilter.condition);
+    prParams.push(...prRepoFilter.params);
+  }
+
+  // build review filter
+  const reviewDateFilter = buildDateFilter("rv.submitted_at", filters);
+  const reviewRepoFilter = buildRepoFilter("pr2.repo_id", filters);
+  const reviewWhere: string[] = [];
+  const reviewParams: (string | number)[] = [];
+
+  if (reviewDateFilter.conditions.length > 0) {
+    reviewWhere.push(...reviewDateFilter.conditions);
+    reviewParams.push(...reviewDateFilter.params);
+  }
+  if (reviewRepoFilter.condition) {
+    reviewWhere.push(reviewRepoFilter.condition);
+    reviewParams.push(...reviewRepoFilter.params);
+  }
+
+  const reviewWhereClause = reviewWhere.length > 0 ? `WHERE ${reviewWhere.join(" AND ")}` : "";
+
+  // get commit stats per author per repo
+  const commitStats = db
+    .prepare(
+      `SELECT 
+        c.author_login,
+        r.full_name as repo,
+        c.repo_id,
+        COUNT(*) as commits,
+        COALESCE(SUM(c.additions), 0) as additions,
+        COALESCE(SUM(c.deletions), 0) as deletions
+       FROM commits c
+       JOIN repos r ON c.repo_id = r.id
+       WHERE ${whereClause.join(" AND ")}
+       GROUP BY c.author_login, c.repo_id`
+    )
+    .all(...params) as {
+      author_login: string;
+      repo: string;
+      repo_id: number;
+      commits: number;
+      additions: number;
+      deletions: number;
+    }[];
+
+  // get PR stats per author per repo
+  const prStats = db
+    .prepare(
+      `SELECT 
+        pr.author_login,
+        r.full_name as repo,
+        pr.repo_id,
+        COUNT(*) as prs_opened,
+        COUNT(CASE WHEN pr.merged_at IS NOT NULL THEN 1 END) as prs_merged
+       FROM pull_requests pr
+       JOIN repos r ON pr.repo_id = r.id
+       WHERE ${prWhere.join(" AND ")}
+       GROUP BY pr.author_login, pr.repo_id`
+    )
+    .all(...prParams) as {
+      author_login: string;
+      repo: string;
+      repo_id: number;
+      prs_opened: number;
+      prs_merged: number;
+    }[];
+
+  // get review stats per reviewer per repo
+  const reviewStats = db
+    .prepare(
+      `SELECT 
+        rv.reviewer_login as author_login,
+        r.full_name as repo,
+        pr2.repo_id,
+        COUNT(*) as reviews_given,
+        COUNT(CASE WHEN rv.state = 'APPROVED' THEN 1 END) as approvals
+       FROM reviews rv
+       JOIN pull_requests pr2 ON rv.pr_id = pr2.id
+       JOIN repos r ON pr2.repo_id = r.id
+       ${reviewWhereClause}
+       GROUP BY rv.reviewer_login, pr2.repo_id`
+    )
+    .all(...reviewParams) as {
+      author_login: string;
+      repo: string;
+      repo_id: number;
+      reviews_given: number;
+      approvals: number;
+    }[];
+
+  // merge all stats by author + repo
+  const metricsMap = new Map<string, {
+    author_login: string;
+    repo: string;
+    commits: number;
+    additions: number;
+    deletions: number;
+    prs_opened: number;
+    prs_merged: number;
+    reviews_given: number;
+    avg_commit_size: number;
+    merge_rate: number;
+  }>();
+
+  // add commit stats
+  for (const stat of commitStats) {
+    const key = `${stat.author_login}:${stat.repo}`;
+    metricsMap.set(key, {
+      author_login: stat.author_login,
+      repo: stat.repo,
+      commits: stat.commits,
+      additions: stat.additions,
+      deletions: stat.deletions,
+      prs_opened: 0,
+      prs_merged: 0,
+      reviews_given: 0,
+      avg_commit_size: stat.commits > 0 ? Math.round((stat.additions + stat.deletions) / stat.commits) : 0,
+      merge_rate: 0,
+    });
+  }
+
+  // merge PR stats
+  for (const stat of prStats) {
+    const key = `${stat.author_login}:${stat.repo}`;
+    const existing = metricsMap.get(key);
+    if (existing) {
+      existing.prs_opened = stat.prs_opened;
+      existing.prs_merged = stat.prs_merged;
+      existing.merge_rate = stat.prs_opened > 0 ? Math.round((stat.prs_merged / stat.prs_opened) * 100) : 0;
+    } else {
+      metricsMap.set(key, {
+        author_login: stat.author_login,
+        repo: stat.repo,
+        commits: 0,
+        additions: 0,
+        deletions: 0,
+        prs_opened: stat.prs_opened,
+        prs_merged: stat.prs_merged,
+        reviews_given: 0,
+        avg_commit_size: 0,
+        merge_rate: stat.prs_opened > 0 ? Math.round((stat.prs_merged / stat.prs_opened) * 100) : 0,
+      });
+    }
+  }
+
+  // merge review stats
+  for (const stat of reviewStats) {
+    const key = `${stat.author_login}:${stat.repo}`;
+    const existing = metricsMap.get(key);
+    if (existing) {
+      existing.reviews_given = stat.reviews_given;
+    } else {
+      metricsMap.set(key, {
+        author_login: stat.author_login,
+        repo: stat.repo,
+        commits: 0,
+        additions: 0,
+        deletions: 0,
+        prs_opened: 0,
+        prs_merged: 0,
+        reviews_given: stat.reviews_given,
+        avg_commit_size: 0,
+        merge_rate: 0,
+      });
+    }
+  }
+
+  // convert to array and sort by commits desc
+  return Array.from(metricsMap.values()).sort((a, b) => b.commits - a.commits);
+}
+
 // activity over time (daily commits)
 export function getActivityOverTime(filters: Filters = {}) {
   const db = getDb();
