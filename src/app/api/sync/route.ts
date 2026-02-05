@@ -11,7 +11,7 @@ import {
   updateSyncRunProgress,
   completeSyncRun,
 } from "@/lib/db";
-import { fetchCommits, fetchPullRequests, fetchReviews } from "@/lib/github";
+import { fetchCommits, fetchPullRequests, fetchReviews, getRateLimit, RateLimitError } from "@/lib/github";
 
 interface SyncEvent {
   type: "start" | "repo_start" | "progress" | "repo_done" | "complete" | "error";
@@ -72,6 +72,30 @@ export async function POST(request: NextRequest) {
           return;
         }
 
+        // check rate limit before starting
+        let rateLimit;
+        try {
+          rateLimit = await getRateLimit();
+          send({
+            type: "progress",
+            message: `GitHub API: ${rateLimit.remaining}/${rateLimit.limit} requests remaining (resets ${rateLimit.resetAt.toLocaleTimeString()})`,
+          });
+
+          if (rateLimit.remaining < 50) {
+            send({
+              type: "error",
+              message: `Rate limit too low (${rateLimit.remaining} remaining). Wait until ${rateLimit.resetAt.toLocaleTimeString()} to sync.`,
+            });
+            controller.close();
+            return;
+          }
+        } catch (e) {
+          send({
+            type: "progress",
+            message: `Could not check rate limit: ${e instanceof Error ? e.message : "unknown error"}`,
+          });
+        }
+
         // start tracking this sync run
         syncRunId = startSyncRun(reposToSync.length);
         let totalCommits = 0;
@@ -81,7 +105,7 @@ export async function POST(request: NextRequest) {
         send({
           type: "start",
           message: `Starting sync for ${reposToSync.length} repository(s)...`,
-          data: { totalRepos: reposToSync.length, syncRunId },
+          data: { totalRepos: reposToSync.length, syncRunId, rateLimit },
         });
 
         const results = [];
@@ -112,7 +136,13 @@ export async function POST(request: NextRequest) {
             message: `  Fetching commits${commitSince ? ` since ${new Date(commitSince).toLocaleDateString()}` : " (full sync)"}...`,
           });
 
-          const commits = await fetchCommits(repo.owner, repo.name, commitSince);
+          const commits = await fetchCommits(
+            repo.owner,
+            repo.name,
+            commitSince,
+            100,
+            (msg) => send({ type: "progress", message: msg })
+          );
           for (const commit of commits) {
             insertCommit({ ...commit, repo_id: repo.id });
             repoResult.commits++;
@@ -130,7 +160,14 @@ export async function POST(request: NextRequest) {
             message: `  Fetching pull requests${prSince ? ` since ${new Date(prSince).toLocaleDateString()}` : " (full sync)"}...`,
           });
 
-          const prs = await fetchPullRequests(repo.owner, repo.name, prSince);
+          const prs = await fetchPullRequests(
+            repo.owner,
+            repo.name,
+            prSince,
+            "all",
+            100,
+            (msg) => send({ type: "progress", message: msg })
+          );
           for (const pr of prs) {
             insertPullRequest({ ...pr, repo_id: repo.id });
             repoResult.prs++;
@@ -186,10 +223,19 @@ export async function POST(request: NextRequest) {
           completeSyncRun(syncRunId, status, error instanceof Error ? error.message : String(error));
         }
 
-        send({
-          type: "error",
-          message: `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
-        });
+        // provide helpful error message for rate limit errors
+        if (error instanceof RateLimitError) {
+          send({
+            type: "error",
+            message: `Rate limit exceeded. ${completedRepos > 0 ? `Completed ${completedRepos} repo(s) before hitting limit.` : ""} Try again after ${error.resetAt.toLocaleTimeString()}.`,
+            data: { resetAt: error.resetAt.toISOString(), completedRepos },
+          });
+        } else {
+          send({
+            type: "error",
+            message: `Sync failed: ${error instanceof Error ? error.message : String(error)}`,
+          });
+        }
         controller.close();
       }
     },
