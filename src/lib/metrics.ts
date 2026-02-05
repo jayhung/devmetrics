@@ -557,3 +557,35 @@ export function getActivityOverTime(filters: Filters = {}) {
     )
     .all(...params);
 }
+
+/** Returns daily commit counts grouped by author for stacked activity chart */
+export function getActivityByAuthor(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("committed_at", filters);
+  const repoFilter = buildRepoFilter("repo_id", filters);
+
+  const whereClause: string[] = ["author_login IS NOT NULL"];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  return db
+    .prepare(
+      `SELECT 
+        DATE(committed_at) as date,
+        author_login,
+        COUNT(*) as commits
+       FROM commits
+       WHERE ${whereClause.join(" AND ")}
+       GROUP BY DATE(committed_at), author_login
+       ORDER BY date ASC`
+    )
+    .all(...params) as { date: string; author_login: string; commits: number }[];
+}
