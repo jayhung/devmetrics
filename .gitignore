@@ -19,6 +19,7 @@
 *.pem
 data/*.db-wal
 data/*.db-shm
+ignore/*
 
 # debug
 npm-debug.log*
