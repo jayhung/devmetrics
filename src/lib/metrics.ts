@@ -1,14 +1,17 @@
 import { getDb } from "./db";
 
+/** Date range filter for metrics queries */
 interface DateRange {
   start?: string;
   end?: string;
 }
 
+/** Repository filter for metrics queries */
 interface RepoFilter {
   repoIds?: number[];
 }
 
+/** Combined filters for all metrics queries */
 type Filters = DateRange & RepoFilter;
 
 function buildDateFilter(column: string, filters: Filters) {
@@ -38,7 +41,10 @@ function buildRepoFilter(column: string, filters: Filters) {
   return { condition: null, params: [] };
 }
 
-// summary stats
+/**
+ * Returns summary statistics: total commits, PRs, lines changed, and unique contributors.
+ * @param filters - optional date range and repository filters
+ */
 export function getSummaryStats(filters: Filters = {}) {
   const db = getDb();
   const dateFilter = buildDateFilter("committed_at", filters);
@@ -110,7 +116,7 @@ export function getSummaryStats(filters: Filters = {}) {
   };
 }
 
-// commits by author
+/** Returns commit counts and line changes grouped by author */
 export function getCommitsByAuthor(filters: Filters = {}) {
   const db = getDb();
   const dateFilter = buildDateFilter("committed_at", filters);
@@ -143,7 +149,7 @@ export function getCommitsByAuthor(filters: Filters = {}) {
     .all(...params);
 }
 
-// PRs by author
+/** Returns PR counts (opened, merged) grouped by author */
 export function getPRsByAuthor(filters: Filters = {}) {
   const db = getDb();
   const dateFilter = buildDateFilter("created_at", filters);
@@ -177,7 +183,7 @@ export function getPRsByAuthor(filters: Filters = {}) {
     .all(...params);
 }
 
-// reviews by reviewer
+/** Returns review counts (total, approvals, changes requested) grouped by reviewer */
 export function getReviewsByReviewer(filters: Filters = {}) {
   const db = getDb();
   const dateFilter = buildDateFilter("r.submitted_at", filters);
@@ -316,7 +322,10 @@ export function getSyncStateForRepos(filters: Filters = {}) {
   };
 }
 
-// combined author metrics (commits, PRs, reviews per author per repo)
+/**
+ * Returns combined author metrics: commits, PRs, reviews, and derived stats per author per repo.
+ * This is the main data source for the contributor details table.
+ */
 export function getAuthorMetrics(filters: Filters = {}) {
   const db = getDb();
   const dateFilter = buildDateFilter("c.committed_at", filters);
@@ -516,7 +525,7 @@ export function getAuthorMetrics(filters: Filters = {}) {
   return Array.from(metricsMap.values()).sort((a, b) => b.commits - a.commits);
 }
 
-// activity over time (daily commits)
+/** Returns daily commit counts for the activity chart */
 export function getActivityOverTime(filters: Filters = {}) {
   const db = getDb();
   const dateFilter = buildDateFilter("committed_at", filters);

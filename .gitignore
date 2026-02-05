@@ -38,3 +38,7 @@ next-env.d.ts
 
 # database
 /data/*.db
+
+# agent/ai context
+AGENTS.md
+/agents/
