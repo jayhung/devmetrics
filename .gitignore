@@ -17,6 +17,8 @@
 # misc
 .DS_Store
 *.pem
+data/*.db-wal
+data/*.db-shm
 
 # debug
 npm-debug.log*
