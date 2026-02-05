@@ -113,13 +113,23 @@
   visibility: hidden;
 }
 
-.rdp-custom .rdp-day_selected {
+.rdp-custom .rdp-day_selected,
+.rdp-custom .rdp-day_range_start,
+.rdp-custom .rdp-day_range_end {
   background-color: hsl(var(--primary));
   color: hsl(var(--primary-foreground));
 }
 
 .rdp-custom .rdp-day_range_middle {
   background-color: hsl(var(--accent));
+  color: hsl(var(--foreground));
+}
+
+.rdp-custom .rdp-day_selected:hover,
+.rdp-custom .rdp-day_range_start:hover,
+.rdp-custom .rdp-day_range_end:hover {
+  background-color: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
 }
 
 .rdp-custom .rdp-button:hover:not([disabled]) {
