@@ -7,6 +7,7 @@ import { MultiSelect, SelectedChips, Option } from "@/components/ui/multi-select
 import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { SyncConsole } from "@/components/sync-console";
 import { ActivityChart } from "@/components/charts/activity-chart";
+import { ActivityStackedChart } from "@/components/charts/activity-stacked-chart";
 import { AuthorChart } from "@/components/charts/author-chart";
 import { GitCommit, GitPullRequest, Users, Plus, Minus, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
 import { DateRange } from "react-day-picker";
@@ -49,6 +50,7 @@ interface Metrics {
   prsByAuthor: { author_login: string; total: number; merged: number }[];
   reviewsByReviewer: { reviewer_login: string; total_reviews: number; approvals: number }[];
   activity: { date: string; commits: number }[];
+  activityByAuthor: { date: string; author_login: string; commits: number }[];
   dataRange: { earliest_commit: string | null; latest_commit: string | null };
   syncState: { earliest_sync: string | null; latest_sync: string | null; synced_repos: number; total_repos: number };
   authorMetrics: AuthorMetric[];
@@ -472,6 +474,19 @@ export default function Dashboard() {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
+            <CardTitle>Top Contributors</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {metrics.commitsByAuthor.length > 0 ? (
+              <AuthorChart data={metrics.commitsByAuthor} />
+            ) : (
+              <p className="text-muted-foreground text-center py-8">No contributor data</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Activity Over Time</CardTitle>
           </CardHeader>
           <CardContent>
@@ -483,15 +498,15 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="md:col-span-2">
           <CardHeader>
-            <CardTitle>Top Contributors</CardTitle>
+            <CardTitle>Activity by Author</CardTitle>
           </CardHeader>
           <CardContent>
-            {metrics.commitsByAuthor.length > 0 ? (
-              <AuthorChart data={metrics.commitsByAuthor} />
+            {metrics.activityByAuthor.length > 0 ? (
+              <ActivityStackedChart data={metrics.activityByAuthor} />
             ) : (
-              <p className="text-muted-foreground text-center py-8">No contributor data</p>
+              <p className="text-muted-foreground text-center py-8">No activity data</p>
             )}
           </CardContent>
         </Card>

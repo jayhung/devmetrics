@@ -6,6 +6,7 @@ import {
   getPRsByAuthor,
   getReviewsByReviewer,
   getActivityOverTime,
+  getActivityByAuthor,
   getDataRange,
   getSyncStateForRepos,
   getAuthorMetrics,
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest) {
     const filters = { start, end, repoIds };
     const repoOnlyFilters = { repoIds }; // for data range/sync state (ignore date filter)
 
-    const [summary, commitsByAuthor, commitsByAuthorAndRepo, prsByAuthor, reviewsByReviewer, activity, dataRange, syncState, authorMetrics] =
+    const [summary, commitsByAuthor, commitsByAuthorAndRepo, prsByAuthor, reviewsByReviewer, activity, activityByAuthor, dataRange, syncState, authorMetrics] =
       await Promise.all([
         getSummaryStats(filters),
         getCommitsByAuthor(filters),
@@ -33,6 +34,7 @@ export async function GET(request: NextRequest) {
         getPRsByAuthor(filters),
         getReviewsByReviewer(filters),
         getActivityOverTime(filters),
+        getActivityByAuthor(filters),
         getDataRange(repoOnlyFilters),
         getSyncStateForRepos(repoOnlyFilters),
         getAuthorMetrics(filters),
@@ -47,6 +49,7 @@ export async function GET(request: NextRequest) {
       prsByAuthor,
       reviewsByReviewer,
       activity,
+      activityByAuthor,
       dataRange,
       syncState,
       lastSyncRun,
