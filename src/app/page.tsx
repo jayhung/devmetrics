@@ -16,6 +16,10 @@ import { PRActivityChart } from "@/components/charts/pr-activity-chart";
 import { ReviewActivityChart } from "@/components/charts/review-activity-chart";
 import { GitCommit, GitPullRequest, Users, Plus, Minus, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
 import { DateRange } from "react-day-picker";
+import {
+  displayContributorName,
+  displayRepositoryName,
+} from "@/lib/display-names";
 
 interface SyncLog {
   type: "start" | "repo_start" | "progress" | "repo_done" | "complete" | "error";
@@ -151,7 +155,7 @@ export default function Dashboard() {
 
   const repoOptions: Option[] = repos.map((r) => ({
     value: String(r.id),
-    label: r.full_name,
+    label: displayRepositoryName(r.full_name),
   }));
 
   // sorting logic
@@ -169,9 +173,21 @@ export default function Dashboard() {
         const aVal = a[sortColumn];
         const bVal = b[sortColumn];
         if (typeof aVal === "string" && typeof bVal === "string") {
+          const aStr =
+            sortColumn === "author_login"
+              ? displayContributorName(aVal)
+              : sortColumn === "repo"
+                ? displayRepositoryName(aVal)
+                : aVal;
+          const bStr =
+            sortColumn === "author_login"
+              ? displayContributorName(bVal)
+              : sortColumn === "repo"
+                ? displayRepositoryName(bVal)
+                : bVal;
           return sortDirection === "asc"
-            ? aVal.localeCompare(bVal)
-            : bVal.localeCompare(aVal);
+            ? aStr.localeCompare(bStr)
+            : bStr.localeCompare(aStr);
         }
         return sortDirection === "asc"
           ? (aVal as number) - (bVal as number)
@@ -486,7 +502,12 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             {metrics.commitsByAuthor.length > 0 ? (
-              <AuthorChart data={metrics.commitsByAuthor} />
+              <AuthorChart
+                data={metrics.commitsByAuthor.map((a) => ({
+                  ...a,
+                  author_login: displayContributorName(a.author_login),
+                }))}
+              />
             ) : (
               <p className="text-muted-foreground text-center py-8">No contributor data</p>
             )}
@@ -512,7 +533,12 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             {metrics.prsByAuthor.length > 0 ? (
-              <PRAuthorChart data={metrics.prsByAuthor} />
+              <PRAuthorChart
+                data={metrics.prsByAuthor.map((a) => ({
+                  ...a,
+                  author_login: displayContributorName(a.author_login),
+                }))}
+              />
             ) : (
               <p className="text-muted-foreground text-center py-8">No PR data</p>
             )}
@@ -525,7 +551,12 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             {metrics.reviewsByReviewer.length > 0 ? (
-              <ReviewAuthorChart data={metrics.reviewsByReviewer} />
+              <ReviewAuthorChart
+                data={metrics.reviewsByReviewer.map((r) => ({
+                  ...r,
+                  reviewer_login: displayContributorName(r.reviewer_login),
+                }))}
+              />
             ) : (
               <p className="text-muted-foreground text-center py-8">No review data</p>
             )}
@@ -577,7 +608,12 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             {metrics.activityByAuthor.length > 0 ? (
-              <ActivityStackedChart data={metrics.activityByAuthor} />
+              <ActivityStackedChart
+                data={metrics.activityByAuthor.map((a) => ({
+                  ...a,
+                  author_login: displayContributorName(a.author_login),
+                }))}
+              />
             ) : (
               <p className="text-muted-foreground text-center py-8">No activity data</p>
             )}
@@ -609,8 +645,12 @@ export default function Dashboard() {
               <tbody>
                 {sortedAuthorMetrics.map((row, idx) => (
                   <tr key={`${row.author_login}-${row.repo}-${idx}`} className="border-b hover:bg-muted/30">
-                    <td className="py-2 px-4 font-medium">{row.author_login}</td>
-                    <td className="py-2 px-4 text-muted-foreground">{row.repo}</td>
+                    <td className="py-2 px-4 font-medium">
+                      {displayContributorName(row.author_login)}
+                    </td>
+                    <td className="py-2 px-4 text-muted-foreground">
+                      {displayRepositoryName(row.repo)}
+                    </td>
                     <td className="text-right py-2 px-4">{row.commits.toLocaleString()}</td>
                     <td className="text-right py-2 px-4">{row.prs_opened}</td>
                     <td className="text-right py-2 px-4" title={`${row.merge_rate}% merge rate`}>
