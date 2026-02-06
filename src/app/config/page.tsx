@@ -12,6 +12,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 import { Trash2, AlertCircle, CheckCircle2, Search, Lock, Loader2 } from "lucide-react";
+import { displayRepositoryName } from "@/lib/display-names";
 
 interface Repo {
   id: number;
@@ -318,7 +319,7 @@ export default function ConfigPage() {
                       >
                         <div className="flex items-center gap-2">
                           {repo.private && <Lock className="h-3 w-3 text-muted-foreground" />}
-                          <span className="text-sm">{repo.full_name}</span>
+                          <span className="text-sm">{displayRepositoryName(repo.full_name)}</span>
                         </div>
                         <Button
                           size="sm"
@@ -363,7 +364,7 @@ export default function ConfigPage() {
                   className="flex items-center justify-between p-3 border rounded-md"
                 >
                   <div>
-                    <p className="font-medium">{repo.full_name}</p>
+                    <p className="font-medium">{displayRepositoryName(repo.full_name)}</p>
                     <p className="text-sm text-muted-foreground">
                       Added {new Date(repo.added_at).toLocaleDateString()}
                     </p>
