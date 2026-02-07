@@ -17,8 +17,6 @@
 # misc
 .DS_Store
 *.pem
-data/*.db-wal
-data/*.db-shm
 ignore/*
 
 # debug
@@ -39,6 +37,8 @@ next-env.d.ts
 
 # database
 /data/*.db
+/data/*.db-wal
+/data/*.db-shm
 
 # agent/ai context
 AGENTS.md
