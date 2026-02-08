@@ -76,12 +76,6 @@ yarn dev
 
 Open [http://localhost:4000](http://localhost:4000) in your browser.
 
-### 5. Add repositories and sync
-
-1. Go to the **Config** page (`/config`)
-2. Add repositories in `owner/repo` format (e.g., `facebook/react`)
-3. Return to the Dashboard and click **Sync Data**
-
 ## Usage
 
 ### Adding Repositories
@@ -156,7 +150,7 @@ devmetrics/
 Delete the database to start fresh:
 
 ```bash
-rm -rf data/
+rm -rf data/*.db*
 ```
 
 ## Development
