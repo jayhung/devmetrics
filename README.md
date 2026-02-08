@@ -2,7 +2,7 @@
 
 A local-first dashboard for tracking development metrics from GitHub repositories. Visualize commits, pull requests, reviews, and contributor activity across your repos.
 
-![Dashboard Screenshot](docs/screenshot.png)
+![Dashboard Screenshot](docs/screenshot.jpg)
 
 ## Why I built this
 
