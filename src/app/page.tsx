@@ -144,7 +144,12 @@ export default function Dashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [selectedRepoIds, setSelectedRepoIds] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+    // set default time range to last 90 days
+    const now = new Date();
+    const from = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    return { from, to: now };
+  });
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [filtersLoaded, setFiltersLoaded] = useState(false);
