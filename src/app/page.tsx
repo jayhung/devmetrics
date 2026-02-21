@@ -14,12 +14,18 @@ import { ReviewAuthorChart } from "@/components/charts/review-author-chart";
 import { LinesChangedChart } from "@/components/charts/lines-changed-chart";
 import { PRActivityChart } from "@/components/charts/pr-activity-chart";
 import { ReviewActivityChart } from "@/components/charts/review-activity-chart";
-import { GitCommit, GitPullRequest, Users, Plus, Minus, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
-import { DateRange } from "react-day-picker";
 import {
-  displayContributorName,
-  displayRepositoryName,
-} from "@/lib/display-names";
+  GitCommit,
+  GitPullRequest,
+  Users,
+  Plus,
+  Minus,
+  RefreshCw,
+  ChevronUp,
+  ChevronDown,
+} from "lucide-react";
+import { DateRange } from "react-day-picker";
+import { displayContributorName, displayRepositoryName } from "@/lib/display-names";
 
 interface SyncLog {
   type: "start" | "repo_start" | "progress" | "repo_done" | "complete" | "error";
@@ -54,8 +60,19 @@ interface Metrics {
     mergedPRs: number;
     contributors: number;
   };
-  commitsByAuthor: { author_login: string; commits: number; additions: number; deletions: number }[];
-  commitsByAuthorAndRepo: { author_login: string; repo: string; commits: number; additions: number; deletions: number }[];
+  commitsByAuthor: {
+    author_login: string;
+    commits: number;
+    additions: number;
+    deletions: number;
+  }[];
+  commitsByAuthorAndRepo: {
+    author_login: string;
+    repo: string;
+    commits: number;
+    additions: number;
+    deletions: number;
+  }[];
   prsByAuthor: { author_login: string; total: number; merged: number }[];
   reviewsByReviewer: { reviewer_login: string; total_reviews: number; approvals: number }[];
   activity: { date: string; commits: number }[];
@@ -64,7 +81,12 @@ interface Metrics {
   reviewActivity: { date: string; reviews: number; approvals: number }[];
   linesChanged: { date: string; additions: number; deletions: number }[];
   dataRange: { earliest_commit: string | null; latest_commit: string | null };
-  syncState: { earliest_sync: string | null; latest_sync: string | null; synced_repos: number; total_repos: number };
+  syncState: {
+    earliest_sync: string | null;
+    latest_sync: string | null;
+    synced_repos: number;
+    total_repos: number;
+  };
   authorMetrics: AuthorMetric[];
   lastSyncRun?: {
     id: number;
@@ -80,7 +102,16 @@ interface Metrics {
   };
 }
 
-type SortColumn = "author_login" | "repo" | "commits" | "prs_opened" | "prs_merged" | "reviews_given" | "additions" | "deletions" | "avg_commit_size";
+type SortColumn =
+  | "author_login"
+  | "repo"
+  | "commits"
+  | "prs_opened"
+  | "prs_merged"
+  | "reviews_given"
+  | "additions"
+  | "deletions"
+  | "avg_commit_size";
 type SortDirection = "asc" | "desc";
 
 const STORAGE_KEY = "devmetrics-filters";
@@ -190,9 +221,7 @@ export default function Dashboard() {
               : sortColumn === "repo"
                 ? displayRepositoryName(bVal)
                 : bVal;
-          return sortDirection === "asc"
-            ? aStr.localeCompare(bStr)
-            : bStr.localeCompare(aStr);
+          return sortDirection === "asc" ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
         }
         return sortDirection === "asc"
           ? (aVal as number) - (bVal as number)
@@ -200,12 +229,22 @@ export default function Dashboard() {
       })
     : [];
 
-  const SortHeader = ({ column, label, className = "" }: { column: SortColumn; label: string; className?: string }) => (
+  const SortHeader = ({
+    column,
+    label,
+    className = "",
+  }: {
+    column: SortColumn;
+    label: string;
+    className?: string;
+  }) => (
     <th
       className={`py-2 px-4 cursor-pointer hover:bg-muted/50 select-none ${className}`}
       onClick={() => handleSort(column)}
     >
-      <div className={`flex items-center gap-1 ${className.includes("text-right") ? "justify-end" : ""}`}>
+      <div
+        className={`flex items-center gap-1 ${className.includes("text-right") ? "justify-end" : ""}`}
+      >
         {label}
         {sortColumn === column ? (
           sortDirection === "asc" ? (
@@ -314,10 +353,7 @@ export default function Dashboard() {
           if (line.startsWith("data: ")) {
             try {
               const event = JSON.parse(line.slice(6));
-              setSyncLogs((prev) => [
-                ...prev,
-                { ...event, timestamp: new Date() },
-              ]);
+              setSyncLogs((prev) => [...prev, { ...event, timestamp: new Date() }]);
             } catch {
               // ignore parse errors
             }
@@ -367,7 +403,11 @@ export default function Dashboard() {
       <div className="flex flex-col items-center justify-center h-64 gap-4">
         <p className="text-muted-foreground">No metrics available.</p>
         <p className="text-sm text-muted-foreground">
-          Add repositories in the <a href="/config" className="underline">config page</a> and sync data.
+          Add repositories in the{" "}
+          <a href="/config" className="underline">
+            config page
+          </a>{" "}
+          and sync data.
         </p>
       </div>
     );
@@ -427,20 +467,20 @@ export default function Dashboard() {
                 metrics.lastSyncRun.status === "complete"
                   ? "text-green-600"
                   : metrics.lastSyncRun.status === "partial"
-                  ? "text-yellow-600"
-                  : metrics.lastSyncRun.status === "error"
-                  ? "text-red-600"
-                  : "text-blue-600"
+                    ? "text-yellow-600"
+                    : metrics.lastSyncRun.status === "error"
+                      ? "text-red-600"
+                      : "text-blue-600"
               }
             >
               Last sync:{" "}
               {metrics.lastSyncRun.status === "running"
                 ? `running (${metrics.lastSyncRun.completed_repos}/${metrics.lastSyncRun.total_repos})`
                 : metrics.lastSyncRun.status === "complete"
-                ? "success"
-                : metrics.lastSyncRun.status === "partial"
-                ? `partial (${metrics.lastSyncRun.completed_repos}/${metrics.lastSyncRun.total_repos})`
-                : "failed"}
+                  ? "success"
+                  : metrics.lastSyncRun.status === "partial"
+                    ? `partial (${metrics.lastSyncRun.completed_repos}/${metrics.lastSyncRun.total_repos})`
+                    : "failed"}
             </span>
           )}
         </div>
@@ -464,10 +504,10 @@ export default function Dashboard() {
             <GitPullRequest className="h-4 w-4 text-muted-foreground" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{metrics.summary.pullRequests.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">
-              {metrics.summary.mergedPRs} merged
-            </p>
+            <div className="text-2xl font-bold">
+              {metrics.summary.pullRequests.toLocaleString()}
+            </div>
+            <p className="text-xs text-muted-foreground">{metrics.summary.mergedPRs} merged</p>
           </CardContent>
         </Card>
 
@@ -649,7 +689,10 @@ export default function Dashboard() {
               </thead>
               <tbody>
                 {sortedAuthorMetrics.map((row, idx) => (
-                  <tr key={`${row.author_login}-${row.repo}-${idx}`} className="border-b hover:bg-muted/30">
+                  <tr
+                    key={`${row.author_login}-${row.repo}-${idx}`}
+                    className="border-b hover:bg-muted/30"
+                  >
                     <td className="py-2 px-4 font-medium">
                       {displayContributorName(row.author_login)}
                     </td>
