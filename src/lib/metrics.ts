@@ -659,6 +659,71 @@ export function getReviewActivityOverTime(filters: Filters = {}) {
     .all(...params) as { date: string; reviews: number; approvals: number }[];
 }
 
+/** Returns monthly merged PR counts grouped by author for stacked monthly chart */
+export function getMergedPRsByMonth(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("merged_at", filters);
+  const repoFilter = buildRepoFilter("repo_id", filters);
+
+  const whereClause: string[] = ["merged_at IS NOT NULL", "author_login IS NOT NULL"];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  return db
+    .prepare(
+      `SELECT 
+        strftime('%Y-%m', merged_at) as month,
+        author_login,
+        COUNT(*) as count
+       FROM pull_requests
+       WHERE ${whereClause.join(" AND ")}
+       GROUP BY month, author_login
+       ORDER BY month ASC`
+    )
+    .all(...params) as { month: string; author_login: string; count: number }[];
+}
+
+/** Returns monthly review counts grouped by reviewer for stacked monthly chart */
+export function getReviewsByMonth(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("r.submitted_at", filters);
+  const repoFilter = buildRepoFilter("pr.repo_id", filters);
+
+  const whereClause: string[] = ["r.reviewer_login IS NOT NULL"];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  return db
+    .prepare(
+      `SELECT 
+        strftime('%Y-%m', r.submitted_at) as month,
+        r.reviewer_login,
+        COUNT(*) as count
+       FROM reviews r
+       JOIN pull_requests pr ON r.pr_id = pr.id
+       WHERE ${whereClause.join(" AND ")}
+       GROUP BY month, r.reviewer_login
+       ORDER BY month ASC`
+    )
+    .all(...params) as { month: string; reviewer_login: string; count: number }[];
+}
+
 /** Returns daily line changes (additions/deletions) for time-series chart */
 export function getLinesChangedOverTime(filters: Filters = {}) {
   const db = getDb();
