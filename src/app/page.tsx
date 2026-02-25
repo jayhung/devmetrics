@@ -14,6 +14,9 @@ import { ReviewAuthorChart } from "@/components/charts/review-author-chart";
 import { LinesChangedChart } from "@/components/charts/lines-changed-chart";
 import { PRActivityChart } from "@/components/charts/pr-activity-chart";
 import { ReviewActivityChart } from "@/components/charts/review-activity-chart";
+import { PRMonthlyChart } from "@/components/charts/pr-monthly-chart";
+import { ReviewMonthlyChart } from "@/components/charts/review-monthly-chart";
+import { CadenceChart } from "@/components/charts/cadence-chart";
 import { GitCommit, GitPullRequest, Users, Plus, Minus, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
 import { DateRange } from "react-day-picker";
 import { displayContributorName, displayRepositoryName } from "@/lib/display-names";
@@ -53,6 +56,10 @@ interface CombinedAuthorMetric {
   reviews_given: number;
   avg_commit_size: number;
   merge_rate: number;
+  avg_prs_mo: number;
+  avg_reviews_mo: number;
+  avg_prs_mo_active: number;
+  avg_reviews_mo_active: number;
 }
 
 interface Metrics {
@@ -84,6 +91,8 @@ interface Metrics {
   prActivity: { date: string; opened: number; merged: number }[];
   reviewActivity: { date: string; reviews: number; approvals: number }[];
   linesChanged: { date: string; additions: number; deletions: number }[];
+  mergedPRsByMonth: { month: string; author_login: string; count: number }[];
+  reviewsByMonth: { month: string; reviewer_login: string; count: number }[];
   dataRange: { earliest_commit: string | null; latest_commit: string | null };
   syncState: {
     earliest_sync: string | null;
@@ -116,7 +125,9 @@ type SortColumn =
   | "reviews_given"
   | "additions"
   | "deletions"
-  | "avg_commit_size";
+  | "avg_commit_size"
+  | "avg_prs_mo"
+  | "avg_reviews_mo";
 type SortDirection = "asc" | "desc";
 
 const STORAGE_KEY = "devmetrics-filters";
@@ -210,8 +221,9 @@ export default function Dashboard() {
 
   const sortedAuthorMetrics = metrics?.authorMetrics
     ? [...metrics.authorMetrics].sort((a, b) => {
-        // "repo_count" is only valid in combined view; fall back to commits
-        const col: keyof AuthorMetric = sortColumn === "repo_count" ? "commits" : sortColumn;
+        // columns only valid in combined view fall back to commits
+        const combinedOnly = ["repo_count", "avg_prs_mo", "avg_reviews_mo"];
+        const col: keyof AuthorMetric = combinedOnly.includes(sortColumn) ? "commits" : sortColumn as keyof AuthorMetric;
         const aVal = a[col];
         const bVal = b[col];
         if (typeof aVal === "string" && typeof bVal === "string") {
@@ -233,6 +245,37 @@ export default function Dashboard() {
       })
     : [];
 
+  // total months in the selected date range (for avg/mo calculations)
+  const totalMonthsInRange = useMemo(() => {
+    if (!dateRange?.from) {
+      // fallback: use data range
+      if (!metrics?.dataRange?.earliest_commit || !metrics?.dataRange?.latest_commit) return 1;
+      const start = new Date(metrics.dataRange.earliest_commit);
+      const end = new Date(metrics.dataRange.latest_commit);
+      const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
+      return Math.max(months, 1);
+    }
+    const start = dateRange.from;
+    const end = dateRange.to || new Date();
+    const months = (end.getFullYear() - start.getFullYear()) * 12 + (end.getMonth() - start.getMonth()) + 1;
+    return Math.max(months, 1);
+  }, [dateRange, metrics?.dataRange]);
+
+  // active months per person from monthly data
+  const activeMonthsMap = useMemo(() => {
+    const prMonths = new Map<string, Set<string>>();
+    for (const r of metrics?.mergedPRsByMonth || []) {
+      if (!prMonths.has(r.author_login)) prMonths.set(r.author_login, new Set());
+      prMonths.get(r.author_login)!.add(r.month);
+    }
+    const reviewMonths = new Map<string, Set<string>>();
+    for (const r of metrics?.reviewsByMonth || []) {
+      if (!reviewMonths.has(r.reviewer_login)) reviewMonths.set(r.reviewer_login, new Set());
+      reviewMonths.get(r.reviewer_login)!.add(r.month);
+    }
+    return { prMonths, reviewMonths };
+  }, [metrics?.mergedPRsByMonth, metrics?.reviewsByMonth]);
+
   const combinedAuthorMetrics = useMemo((): CombinedAuthorMetric[] => {
     if (!metrics?.authorMetrics) return [];
     const map = new Map<string, CombinedAuthorMetric>();
@@ -247,15 +290,28 @@ export default function Dashboard() {
         existing.reviews_given += row.reviews_given;
         existing.repo_count += 1;
       } else {
-        map.set(row.author_login, { ...row, repo_count: 1 });
+        map.set(row.author_login, {
+          ...row,
+          repo_count: 1,
+          avg_prs_mo: 0,
+          avg_reviews_mo: 0,
+          avg_prs_mo_active: 0,
+          avg_reviews_mo_active: 0,
+        });
       }
     }
     for (const row of map.values()) {
       row.avg_commit_size = row.commits > 0 ? Math.round((row.additions + row.deletions) / row.commits) : 0;
       row.merge_rate = row.prs_opened > 0 ? Math.round((row.prs_merged / row.prs_opened) * 100) : 0;
+      row.avg_prs_mo = parseFloat((row.prs_merged / totalMonthsInRange).toFixed(1));
+      row.avg_reviews_mo = parseFloat((row.reviews_given / totalMonthsInRange).toFixed(1));
+      const activePrMonths = activeMonthsMap.prMonths.get(row.author_login)?.size || 0;
+      const activeReviewMonths = activeMonthsMap.reviewMonths.get(row.author_login)?.size || 0;
+      row.avg_prs_mo_active = activePrMonths > 0 ? parseFloat((row.prs_merged / activePrMonths).toFixed(1)) : 0;
+      row.avg_reviews_mo_active = activeReviewMonths > 0 ? parseFloat((row.reviews_given / activeReviewMonths).toFixed(1)) : 0;
     }
     return [...map.values()];
-  }, [metrics?.authorMetrics]);
+  }, [metrics?.authorMetrics, totalMonthsInRange, activeMonthsMap]);
 
   const sortedCombinedMetrics = useMemo((): CombinedAuthorMetric[] => {
     return [...combinedAuthorMetrics].sort((a, b) => {
@@ -602,42 +658,6 @@ export default function Dashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>PRs by Author</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {metrics.prsByAuthor.length > 0 ? (
-              <PRAuthorChart
-                data={metrics.prsByAuthor.map(a => ({
-                  ...a,
-                  author_login: displayContributorName(a.author_login),
-                }))}
-              />
-            ) : (
-              <p className="py-8 text-center text-muted-foreground">No PR data</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Reviews by Reviewer</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {metrics.reviewsByReviewer.length > 0 ? (
-              <ReviewAuthorChart
-                data={metrics.reviewsByReviewer.map(r => ({
-                  ...r,
-                  reviewer_login: displayContributorName(r.reviewer_login),
-                }))}
-              />
-            ) : (
-              <p className="py-8 text-center text-muted-foreground">No review data</p>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <CardTitle>PR Activity</CardTitle>
           </CardHeader>
           <CardContent>
@@ -662,15 +682,74 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="md:col-span-2">
+        <Card>
           <CardHeader>
-            <CardTitle>Lines Changed Over Time</CardTitle>
+            <CardTitle>PRs by Author</CardTitle>
           </CardHeader>
           <CardContent>
-            {metrics.linesChanged.length > 0 ? (
-              <LinesChangedChart data={metrics.linesChanged} />
+            {metrics.prsByAuthor.length > 0 ? (
+              <PRAuthorChart
+                data={metrics.prsByAuthor.map(a => ({
+                  ...a,
+                  author_login: displayContributorName(a.author_login),
+                }))}
+              />
             ) : (
-              <p className="py-8 text-center text-muted-foreground">No line change data</p>
+              <p className="py-8 text-center text-muted-foreground">No PR data</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Merged PRs / Month</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {metrics.mergedPRsByMonth.length > 0 ? (
+              <PRMonthlyChart
+                data={metrics.mergedPRsByMonth.map(r => ({
+                  ...r,
+                  author_login: displayContributorName(r.author_login),
+                }))}
+              />
+            ) : (
+              <p className="py-8 text-center text-muted-foreground">No merged PR data</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Reviews by Reviewer</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {metrics.reviewsByReviewer.length > 0 ? (
+              <ReviewAuthorChart
+                data={metrics.reviewsByReviewer.map(r => ({
+                  ...r,
+                  reviewer_login: displayContributorName(r.reviewer_login),
+                }))}
+              />
+            ) : (
+              <p className="py-8 text-center text-muted-foreground">No review data</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Reviews / Month</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {metrics.reviewsByMonth.length > 0 ? (
+              <ReviewMonthlyChart
+                data={metrics.reviewsByMonth.map(r => ({
+                  ...r,
+                  reviewer_login: displayContributorName(r.reviewer_login),
+                }))}
+              />
+            ) : (
+              <p className="py-8 text-center text-muted-foreground">No review data</p>
             )}
           </CardContent>
         </Card>
@@ -692,6 +771,29 @@ export default function Dashboard() {
             )}
           </CardContent>
         </Card>
+
+        <Card className="md:col-span-2">
+          <CardHeader>
+            <CardTitle>Contributor Cadence</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {metrics.mergedPRsByMonth.length > 0 || metrics.reviewsByMonth.length > 0 ? (
+              <CadenceChart
+                prData={metrics.mergedPRsByMonth.map(r => ({
+                  ...r,
+                  author_login: displayContributorName(r.author_login),
+                }))}
+                reviewData={metrics.reviewsByMonth.map(r => ({
+                  ...r,
+                  reviewer_login: displayContributorName(r.reviewer_login),
+                }))}
+              />
+            ) : (
+              <p className="py-8 text-center text-muted-foreground">No cadence data</p>
+            )}
+          </CardContent>
+        </Card>
+
       </div>
 
       {/* contributor table */}
@@ -721,7 +823,9 @@ export default function Dashboard() {
                   <SortHeader column="commits" label="Commits" className="text-right" />
                   <SortHeader column="prs_opened" label="PRs" className="text-right" />
                   <SortHeader column="prs_merged" label="Merged" className="text-right" />
+                  {showCombined && <SortHeader column="avg_prs_mo" label="PRs/mo" className="text-right" />}
                   <SortHeader column="reviews_given" label="Reviews" className="text-right" />
+                  {showCombined && <SortHeader column="avg_reviews_mo" label="Reviews/mo" className="text-right" />}
                   <SortHeader column="avg_commit_size" label="Avg Lines" className="text-right" />
                   <SortHeader column="additions" label="Additions" className="text-right" />
                   <SortHeader column="deletions" label="Deletions" className="text-right" />
@@ -741,7 +845,19 @@ export default function Dashboard() {
                             <span className="ml-1 text-xs text-muted-foreground">({row.merge_rate}%)</span>
                           )}
                         </td>
+                        <td
+                          className="px-4 py-2 text-right"
+                          title={row.avg_prs_mo_active > 0 ? `${row.avg_prs_mo_active}/mo when active` : undefined}
+                        >
+                          {row.avg_prs_mo}
+                        </td>
                         <td className="px-4 py-2 text-right">{row.reviews_given}</td>
+                        <td
+                          className="px-4 py-2 text-right"
+                          title={row.avg_reviews_mo_active > 0 ? `${row.avg_reviews_mo_active}/mo when active` : undefined}
+                        >
+                          {row.avg_reviews_mo}
+                        </td>
                         <td className="px-4 py-2 text-right text-muted-foreground">
                           {row.avg_commit_size.toLocaleString()}
                         </td>
@@ -772,6 +888,19 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Lines Changed Over Time</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {metrics.linesChanged.length > 0 ? (
+            <LinesChangedChart data={metrics.linesChanged} />
+          ) : (
+            <p className="py-8 text-center text-muted-foreground">No line change data</p>
+          )}
         </CardContent>
       </Card>
 
