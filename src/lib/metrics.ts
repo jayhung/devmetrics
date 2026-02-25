@@ -96,14 +96,13 @@ export function getSummaryStats(filters: Filters = {}) {
     )
     .get(...prParams) as { total: number; merged: number };
 
-  const contributorWhere = whereClause.length > 0
-    ? `WHERE ${whereClause.join(" AND ")} AND author_login IS NOT NULL`
-    : "WHERE author_login IS NOT NULL";
+  const contributorWhere =
+    whereClause.length > 0
+      ? `WHERE ${whereClause.join(" AND ")} AND author_login IS NOT NULL`
+      : "WHERE author_login IS NOT NULL";
 
   const contributors = db
-    .prepare(
-      `SELECT COUNT(DISTINCT author_login) as count FROM commits ${contributorWhere}`
-    )
+    .prepare(`SELECT COUNT(DISTINCT author_login) as count FROM commits ${contributorWhere}`)
     .get(...params) as { count: number };
 
   return {
@@ -116,8 +115,8 @@ export function getSummaryStats(filters: Filters = {}) {
   };
 }
 
-/** Returns commit counts and line changes grouped by author */
-export function getCommitsByAuthor(filters: Filters = {}) {
+/** Returns commit counts and line changes grouped by contributor */
+export function getCommitsByContributor(filters: Filters = {}) {
   const db = getDb();
   const dateFilter = buildDateFilter("committed_at", filters);
   const repoFilter = buildRepoFilter("repo_id", filters);
@@ -149,8 +148,8 @@ export function getCommitsByAuthor(filters: Filters = {}) {
     .all(...params);
 }
 
-/** Returns PR counts (opened, merged) grouped by author */
-export function getPRsByAuthor(filters: Filters = {}) {
+/** Returns PR counts (opened, merged) grouped by contributor */
+export function getPRsByContributor(filters: Filters = {}) {
   const db = getDb();
   const dateFilter = buildDateFilter("created_at", filters);
   const repoFilter = buildRepoFilter("repo_id", filters);
@@ -219,8 +218,8 @@ export function getReviewsByReviewer(filters: Filters = {}) {
     .all(...params);
 }
 
-// commits by author and repo (for detailed table)
-export function getCommitsByAuthorAndRepo(filters: Filters = {}) {
+// commits by contributor and repo (for detailed table)
+export function getCommitsByContributorAndRepo(filters: Filters = {}) {
   const db = getDb();
   const dateFilter = buildDateFilter("c.committed_at", filters);
   const repoFilter = buildRepoFilter("c.repo_id", filters);
@@ -311,9 +310,7 @@ export function getSyncStateForRepos(filters: Filters = {}) {
   // also count total repos for comparison
   const repoFilter2 = buildRepoFilter("id", filters);
   const totalRepos = db
-    .prepare(
-      `SELECT COUNT(*) as count FROM repos ${repoFilter2.condition ? `WHERE ${repoFilter2.condition}` : ""}`
-    )
+    .prepare(`SELECT COUNT(*) as count FROM repos ${repoFilter2.condition ? `WHERE ${repoFilter2.condition}` : ""}`)
     .get(...(repoFilter2.params || [])) as { count: number };
 
   return {
@@ -323,10 +320,10 @@ export function getSyncStateForRepos(filters: Filters = {}) {
 }
 
 /**
- * Returns combined author metrics: commits, PRs, reviews, and derived stats per author per repo.
+ * Returns combined contributor metrics: commits, PRs, reviews, and derived stats per contributor per repo.
  * This is the main data source for the contributor details table.
  */
-export function getAuthorMetrics(filters: Filters = {}) {
+export function getContributorMetrics(filters: Filters = {}) {
   const db = getDb();
   const dateFilter = buildDateFilter("c.committed_at", filters);
   const repoFilter = buildRepoFilter("c.repo_id", filters);
@@ -391,13 +388,13 @@ export function getAuthorMetrics(filters: Filters = {}) {
        GROUP BY c.author_login, c.repo_id`
     )
     .all(...params) as {
-      author_login: string;
-      repo: string;
-      repo_id: number;
-      commits: number;
-      additions: number;
-      deletions: number;
-    }[];
+    author_login: string;
+    repo: string;
+    repo_id: number;
+    commits: number;
+    additions: number;
+    deletions: number;
+  }[];
 
   // get PR stats per author per repo
   const prStats = db
@@ -414,12 +411,12 @@ export function getAuthorMetrics(filters: Filters = {}) {
        GROUP BY pr.author_login, pr.repo_id`
     )
     .all(...prParams) as {
-      author_login: string;
-      repo: string;
-      repo_id: number;
-      prs_opened: number;
-      prs_merged: number;
-    }[];
+    author_login: string;
+    repo: string;
+    repo_id: number;
+    prs_opened: number;
+    prs_merged: number;
+  }[];
 
   // get review stats per reviewer per repo
   const reviewStats = db
@@ -437,26 +434,29 @@ export function getAuthorMetrics(filters: Filters = {}) {
        GROUP BY rv.reviewer_login, pr2.repo_id`
     )
     .all(...reviewParams) as {
-      author_login: string;
-      repo: string;
-      repo_id: number;
-      reviews_given: number;
-      approvals: number;
-    }[];
-
-  // merge all stats by author + repo
-  const metricsMap = new Map<string, {
     author_login: string;
     repo: string;
-    commits: number;
-    additions: number;
-    deletions: number;
-    prs_opened: number;
-    prs_merged: number;
+    repo_id: number;
     reviews_given: number;
-    avg_commit_size: number;
-    merge_rate: number;
-  }>();
+    approvals: number;
+  }[];
+
+  // merge all stats by author + repo
+  const metricsMap = new Map<
+    string,
+    {
+      author_login: string;
+      repo: string;
+      commits: number;
+      additions: number;
+      deletions: number;
+      prs_opened: number;
+      prs_merged: number;
+      reviews_given: number;
+      avg_commit_size: number;
+      merge_rate: number;
+    }
+  >();
 
   // add commit stats
   for (const stat of commitStats) {
@@ -558,8 +558,8 @@ export function getActivityOverTime(filters: Filters = {}) {
     .all(...params);
 }
 
-/** Returns daily commit counts grouped by author for stacked activity chart */
-export function getActivityByAuthor(filters: Filters = {}) {
+/** Returns daily commit counts grouped by contributor for stacked activity chart */
+export function getActivityByContributor(filters: Filters = {}) {
   const db = getDb();
   const dateFilter = buildDateFilter("committed_at", filters);
   const repoFilter = buildRepoFilter("repo_id", filters);
@@ -722,6 +722,140 @@ export function getReviewsByMonth(filters: Filters = {}) {
        ORDER BY month ASC`
     )
     .all(...params) as { month: string; reviewer_login: string; count: number }[];
+}
+
+/** Returns daily merged PR counts grouped by contributor for cadence chart */
+export function getMergedPRsByDay(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("merged_at", filters);
+  const repoFilter = buildRepoFilter("repo_id", filters);
+
+  const whereClause: string[] = ["merged_at IS NOT NULL", "author_login IS NOT NULL"];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  return db
+    .prepare(
+      `SELECT 
+        DATE(merged_at) as date,
+        author_login,
+        COUNT(*) as count
+       FROM pull_requests
+       WHERE ${whereClause.join(" AND ")}
+       GROUP BY date, author_login
+       ORDER BY date ASC`
+    )
+    .all(...params) as { date: string; author_login: string; count: number }[];
+}
+
+/** Returns daily review counts grouped by reviewer for cadence chart */
+export function getReviewsByDay(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("r.submitted_at", filters);
+  const repoFilter = buildRepoFilter("pr.repo_id", filters);
+
+  const whereClause: string[] = ["r.reviewer_login IS NOT NULL"];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  return db
+    .prepare(
+      `SELECT 
+        DATE(r.submitted_at) as date,
+        r.reviewer_login,
+        COUNT(*) as count
+       FROM reviews r
+       JOIN pull_requests pr ON r.pr_id = pr.id
+       WHERE ${whereClause.join(" AND ")}
+       GROUP BY date, r.reviewer_login
+       ORDER BY date ASC`
+    )
+    .all(...params) as { date: string; reviewer_login: string; count: number }[];
+}
+
+/** Returns daily line changes grouped by repo */
+export function getLinesChangedByRepo(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("c.committed_at", filters);
+  const repoFilter = buildRepoFilter("c.repo_id", filters);
+
+  const whereClause: string[] = [];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  const where = whereClause.length > 0 ? `WHERE ${whereClause.join(" AND ")}` : "";
+
+  return db
+    .prepare(
+      `SELECT 
+        DATE(c.committed_at) as date,
+        r.full_name as repo,
+        COALESCE(SUM(c.additions), 0) as additions,
+        COALESCE(SUM(c.deletions), 0) as deletions
+       FROM commits c
+       JOIN repos r ON c.repo_id = r.id
+       ${where}
+       GROUP BY DATE(c.committed_at), c.repo_id
+       ORDER BY date ASC`
+    )
+    .all(...params) as { date: string; repo: string; additions: number; deletions: number }[];
+}
+
+/** Returns daily line changes grouped by contributor */
+export function getLinesChangedByContributor(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("committed_at", filters);
+  const repoFilter = buildRepoFilter("repo_id", filters);
+
+  const whereClause: string[] = ["author_login IS NOT NULL"];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  return db
+    .prepare(
+      `SELECT 
+        DATE(committed_at) as date,
+        author_login,
+        COALESCE(SUM(additions), 0) as additions,
+        COALESCE(SUM(deletions), 0) as deletions
+       FROM commits
+       WHERE ${whereClause.join(" AND ")}
+       GROUP BY DATE(committed_at), author_login
+       ORDER BY date ASC`
+    )
+    .all(...params) as { date: string; author_login: string; additions: number; deletions: number }[];
 }
 
 /** Returns daily line changes (additions/deletions) for time-series chart */

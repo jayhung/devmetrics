@@ -11,11 +11,11 @@ import {
   Legend,
 } from "recharts";
 
-interface ReviewAuthorChartProps {
+interface ReviewContributorChartProps {
   data: { reviewer_login: string; total_reviews: number; approvals: number }[];
 }
 
-export function ReviewAuthorChart({ data }: ReviewAuthorChartProps) {
+export function ReviewContributorChart({ data }: ReviewContributorChartProps) {
   // take top 10 reviewers
   const topReviewers = data.slice(0, 10);
 

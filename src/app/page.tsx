@@ -8,10 +8,10 @@ import { DateRangePicker } from "@/components/ui/date-range-picker";
 import { SyncConsole } from "@/components/sync-console";
 import { ActivityChart } from "@/components/charts/activity-chart";
 import { ActivityStackedChart } from "@/components/charts/activity-stacked-chart";
-import { AuthorChart } from "@/components/charts/author-chart";
-import { PRAuthorChart } from "@/components/charts/pr-author-chart";
-import { ReviewAuthorChart } from "@/components/charts/review-author-chart";
-import { LinesChangedChart } from "@/components/charts/lines-changed-chart";
+import { ContributorChart } from "@/components/charts/author-chart";
+import { PRContributorChart } from "@/components/charts/pr-author-chart";
+import { ReviewContributorChart } from "@/components/charts/review-author-chart";
+import { LinesChangedChart, type LinesChangedMode } from "@/components/charts/lines-changed-chart";
 import { PRActivityChart } from "@/components/charts/pr-activity-chart";
 import { ReviewActivityChart } from "@/components/charts/review-activity-chart";
 import { PRMonthlyChart } from "@/components/charts/pr-monthly-chart";
@@ -32,7 +32,7 @@ interface Repo {
   full_name: string;
 }
 
-interface AuthorMetric {
+interface ContributorMetric {
   author_login: string;
   repo: string;
   commits: number;
@@ -45,7 +45,7 @@ interface AuthorMetric {
   merge_rate: number;
 }
 
-interface CombinedAuthorMetric {
+interface CombinedContributorMetric {
   author_login: string;
   repo_count: number;
   commits: number;
@@ -71,28 +71,32 @@ interface Metrics {
     mergedPRs: number;
     contributors: number;
   };
-  commitsByAuthor: {
+  commitsByContributor: {
     author_login: string;
     commits: number;
     additions: number;
     deletions: number;
   }[];
-  commitsByAuthorAndRepo: {
+  commitsByContributorAndRepo: {
     author_login: string;
     repo: string;
     commits: number;
     additions: number;
     deletions: number;
   }[];
-  prsByAuthor: { author_login: string; total: number; merged: number }[];
+  prsByContributor: { author_login: string; total: number; merged: number }[];
   reviewsByReviewer: { reviewer_login: string; total_reviews: number; approvals: number }[];
   activity: { date: string; commits: number }[];
-  activityByAuthor: { date: string; author_login: string; commits: number }[];
+  activityByContributor: { date: string; author_login: string; commits: number }[];
   prActivity: { date: string; opened: number; merged: number }[];
   reviewActivity: { date: string; reviews: number; approvals: number }[];
   linesChanged: { date: string; additions: number; deletions: number }[];
+  linesChangedByRepo: { date: string; repo: string; additions: number; deletions: number }[];
+  linesChangedByContributor: { date: string; author_login: string; additions: number; deletions: number }[];
   mergedPRsByMonth: { month: string; author_login: string; count: number }[];
   reviewsByMonth: { month: string; reviewer_login: string; count: number }[];
+  mergedPRsByDay: { date: string; author_login: string; count: number }[];
+  reviewsByDay: { date: string; reviewer_login: string; count: number }[];
   dataRange: { earliest_commit: string | null; latest_commit: string | null };
   syncState: {
     earliest_sync: string | null;
@@ -100,7 +104,7 @@ interface Metrics {
     synced_repos: number;
     total_repos: number;
   };
-  authorMetrics: AuthorMetric[];
+  contributorMetrics: ContributorMetric[];
   lastSyncRun?: {
     id: number;
     started_at: string;
@@ -203,6 +207,9 @@ export default function Dashboard() {
   const [sortColumn, setSortColumn] = useState<SortColumn>("commits");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [showCombined, setShowCombined] = useState(true);
+  const [linesChangedMode, setLinesChangedMode] = useState<LinesChangedMode>("combined");
+  const [cadenceView, setCadenceView] = useState<"heatmap" | "line">("heatmap");
+  const [cadenceData, setCadenceData] = useState<"prs" | "reviews">("prs");
 
   const repoOptions: Option[] = repos.map(r => ({
     value: String(r.id),
@@ -219,11 +226,13 @@ export default function Dashboard() {
     }
   };
 
-  const sortedAuthorMetrics = metrics?.authorMetrics
-    ? [...metrics.authorMetrics].sort((a, b) => {
+  const sortedContributorMetrics = metrics?.contributorMetrics
+    ? [...metrics.contributorMetrics].sort((a, b) => {
         // columns only valid in combined view fall back to commits
         const combinedOnly = ["repo_count", "avg_prs_mo", "avg_reviews_mo"];
-        const col: keyof AuthorMetric = combinedOnly.includes(sortColumn) ? "commits" : sortColumn as keyof AuthorMetric;
+        const col: keyof ContributorMetric = combinedOnly.includes(sortColumn)
+          ? "commits"
+          : (sortColumn as keyof ContributorMetric);
         const aVal = a[col];
         const bVal = b[col];
         if (typeof aVal === "string" && typeof bVal === "string") {
@@ -276,10 +285,10 @@ export default function Dashboard() {
     return { prMonths, reviewMonths };
   }, [metrics?.mergedPRsByMonth, metrics?.reviewsByMonth]);
 
-  const combinedAuthorMetrics = useMemo((): CombinedAuthorMetric[] => {
-    if (!metrics?.authorMetrics) return [];
-    const map = new Map<string, CombinedAuthorMetric>();
-    for (const row of metrics.authorMetrics) {
+  const combinedContributorMetrics = useMemo((): CombinedContributorMetric[] => {
+    if (!metrics?.contributorMetrics) return [];
+    const map = new Map<string, CombinedContributorMetric>();
+    for (const row of metrics.contributorMetrics) {
       const existing = map.get(row.author_login);
       if (existing) {
         existing.commits += row.commits;
@@ -308,25 +317,26 @@ export default function Dashboard() {
       const activePrMonths = activeMonthsMap.prMonths.get(row.author_login)?.size || 0;
       const activeReviewMonths = activeMonthsMap.reviewMonths.get(row.author_login)?.size || 0;
       row.avg_prs_mo_active = activePrMonths > 0 ? parseFloat((row.prs_merged / activePrMonths).toFixed(1)) : 0;
-      row.avg_reviews_mo_active = activeReviewMonths > 0 ? parseFloat((row.reviews_given / activeReviewMonths).toFixed(1)) : 0;
+      row.avg_reviews_mo_active =
+        activeReviewMonths > 0 ? parseFloat((row.reviews_given / activeReviewMonths).toFixed(1)) : 0;
     }
     return [...map.values()];
-  }, [metrics?.authorMetrics, totalMonthsInRange, activeMonthsMap]);
+  }, [metrics?.contributorMetrics, totalMonthsInRange, activeMonthsMap]);
 
-  const sortedCombinedMetrics = useMemo((): CombinedAuthorMetric[] => {
-    return [...combinedAuthorMetrics].sort((a, b) => {
+  const sortedCombinedMetrics = useMemo((): CombinedContributorMetric[] => {
+    return [...combinedContributorMetrics].sort((a, b) => {
       if (sortColumn === "author_login") {
         const aStr = displayContributorName(a.author_login);
         const bStr = displayContributorName(b.author_login);
         return sortDirection === "asc" ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
       }
       // map "repo" to "repo_count" in combined view
-      const col: keyof CombinedAuthorMetric = sortColumn === "repo" ? "repo_count" : sortColumn;
+      const col: keyof CombinedContributorMetric = sortColumn === "repo" ? "repo_count" : sortColumn;
       const aVal = a[col] as number;
       const bVal = b[col] as number;
       return sortDirection === "asc" ? aVal - bVal : bVal - aVal;
     });
-  }, [combinedAuthorMetrics, sortColumn, sortDirection]);
+  }, [combinedContributorMetrics, sortColumn, sortDirection]);
 
   const SortHeader = ({ column, label, className = "" }: { column: SortColumn; label: string; className?: string }) => (
     <th
@@ -630,9 +640,9 @@ export default function Dashboard() {
             <CardTitle>Top Contributors</CardTitle>
           </CardHeader>
           <CardContent>
-            {metrics.commitsByAuthor.length > 0 ? (
-              <AuthorChart
-                data={metrics.commitsByAuthor.map(a => ({
+            {metrics.commitsByContributor.length > 0 ? (
+              <ContributorChart
+                data={metrics.commitsByContributor.map(a => ({
                   ...a,
                   author_login: displayContributorName(a.author_login),
                 }))}
@@ -684,12 +694,12 @@ export default function Dashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>PRs by Author</CardTitle>
+            <CardTitle>PRs by Contributor</CardTitle>
           </CardHeader>
           <CardContent>
-            {metrics.prsByAuthor.length > 0 ? (
-              <PRAuthorChart
-                data={metrics.prsByAuthor.map(a => ({
+            {metrics.prsByContributor.length > 0 ? (
+              <PRContributorChart
+                data={metrics.prsByContributor.map(a => ({
                   ...a,
                   author_login: displayContributorName(a.author_login),
                 }))}
@@ -724,7 +734,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             {metrics.reviewsByReviewer.length > 0 ? (
-              <ReviewAuthorChart
+              <ReviewContributorChart
                 data={metrics.reviewsByReviewer.map(r => ({
                   ...r,
                   reviewer_login: displayContributorName(r.reviewer_login),
@@ -756,12 +766,12 @@ export default function Dashboard() {
 
         <Card className="md:col-span-2">
           <CardHeader>
-            <CardTitle>Commits by Author Over Time</CardTitle>
+            <CardTitle>Commits by Contributor</CardTitle>
           </CardHeader>
           <CardContent>
-            {metrics.activityByAuthor.length > 0 ? (
+            {metrics.activityByContributor.length > 0 ? (
               <ActivityStackedChart
-                data={metrics.activityByAuthor.map(a => ({
+                data={metrics.activityByContributor.map(a => ({
                   ...a,
                   author_login: displayContributorName(a.author_login),
                 }))}
@@ -773,40 +783,124 @@ export default function Dashboard() {
         </Card>
 
         <Card className="md:col-span-2">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Contributor Cadence</CardTitle>
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1">
+                {(["heatmap", "line"] as const).map((v) => (
+                  <button
+                    key={v}
+                    className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                      cadenceView === v
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                    onClick={() => setCadenceView(v)}
+                  >
+                    {v === "heatmap" ? "Heatmap" : "Line"}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-1">
+                {(["prs", "reviews"] as const).map((m) => (
+                  <button
+                    key={m}
+                    className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                      cadenceData === m
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                    onClick={() => setCadenceData(m)}
+                  >
+                    {m === "prs" ? "Merged PRs" : "Reviews"}
+                  </button>
+                ))}
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            {metrics.mergedPRsByMonth.length > 0 || metrics.reviewsByMonth.length > 0 ? (
+            {metrics.mergedPRsByDay.length > 0 || metrics.reviewsByDay.length > 0 ? (
               <CadenceChart
-                prData={metrics.mergedPRsByMonth.map(r => ({
+                prData={metrics.mergedPRsByDay.map(r => ({
                   ...r,
                   author_login: displayContributorName(r.author_login),
                 }))}
-                reviewData={metrics.reviewsByMonth.map(r => ({
+                reviewData={metrics.reviewsByDay.map(r => ({
                   ...r,
                   reviewer_login: displayContributorName(r.reviewer_login),
                 }))}
+                view={cadenceView}
+                dataMode={cadenceData}
               />
             ) : (
               <p className="py-8 text-center text-muted-foreground">No cadence data</p>
             )}
           </CardContent>
         </Card>
-
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Lines Changed Over Time</CardTitle>
+          <div className="flex gap-1">
+            {(["combined", "byProject", "byContributor"] as const).map(m => (
+              <button
+                key={m}
+                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                  linesChangedMode === m
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+                onClick={() => setLinesChangedMode(m)}
+              >
+                {m === "combined" ? "Combined" : m === "byProject" ? "By Project" : "By Contributor"}
+              </button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {metrics.linesChanged.length > 0 ? (
+            <LinesChangedChart
+              data={metrics.linesChanged}
+              byRepo={metrics.linesChangedByRepo.map(r => ({
+                ...r,
+                repo: displayRepositoryName(r.repo),
+              }))}
+              byContributor={metrics.linesChangedByContributor.map(r => ({
+                ...r,
+                author_login: displayContributorName(r.author_login),
+              }))}
+              mode={linesChangedMode}
+            />
+          ) : (
+            <p className="py-8 text-center text-muted-foreground">No line change data</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* contributor table */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Contributor Details</CardTitle>
           <div className="flex gap-1">
-            <Button variant={showCombined ? "default" : "outline"} size="sm" onClick={() => setShowCombined(true)}>
+            <button
+              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                showCombined ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+              onClick={() => setShowCombined(true)}
+            >
               Combined
-            </Button>
-            <Button variant={!showCombined ? "default" : "outline"} size="sm" onClick={() => setShowCombined(false)}>
+            </button>
+            <button
+              className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                !showCombined
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-muted text-muted-foreground hover:bg-muted/80"
+              }`}
+              onClick={() => setShowCombined(false)}
+            >
               By Project
-            </Button>
+            </button>
           </div>
         </CardHeader>
         <CardContent>
@@ -814,7 +908,7 @@ export default function Dashboard() {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b">
-                  <SortHeader column="author_login" label="Author" className="text-left" />
+                  <SortHeader column="author_login" label="Contributor" className="text-left" />
                   {showCombined ? (
                     <SortHeader column="repo_count" label="Repos" className="text-right" />
                   ) : (
@@ -854,7 +948,9 @@ export default function Dashboard() {
                         <td className="px-4 py-2 text-right">{row.reviews_given}</td>
                         <td
                           className="px-4 py-2 text-right"
-                          title={row.avg_reviews_mo_active > 0 ? `${row.avg_reviews_mo_active}/mo when active` : undefined}
+                          title={
+                            row.avg_reviews_mo_active > 0 ? `${row.avg_reviews_mo_active}/mo when active` : undefined
+                          }
                         >
                           {row.avg_reviews_mo}
                         </td>
@@ -865,7 +961,7 @@ export default function Dashboard() {
                         <td className="px-4 py-2 text-right text-red-600">-{row.deletions.toLocaleString()}</td>
                       </tr>
                     ))
-                  : sortedAuthorMetrics.map((row, idx) => (
+                  : sortedContributorMetrics.map((row, idx) => (
                       <tr key={`${row.author_login}-${row.repo}-${idx}`} className="border-b hover:bg-muted/30">
                         <td className="px-4 py-2 font-medium">{displayContributorName(row.author_login)}</td>
                         <td className="px-4 py-2 text-muted-foreground">{displayRepositoryName(row.repo)}</td>
@@ -888,19 +984,6 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Lines Changed Over Time</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {metrics.linesChanged.length > 0 ? (
-            <LinesChangedChart data={metrics.linesChanged} />
-          ) : (
-            <p className="py-8 text-center text-muted-foreground">No line change data</p>
-          )}
         </CardContent>
       </Card>
 

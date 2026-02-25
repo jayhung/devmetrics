@@ -41,22 +41,20 @@ function formatMonth(ym: string) {
 }
 
 export function PRMonthlyChart({ data }: PRMonthlyChartProps) {
-  // rank authors by total merged PRs
-  const authorTotals = new Map<string, number>();
+  const contributorTotals = new Map<string, number>();
   for (const row of data) {
-    authorTotals.set(row.author_login, (authorTotals.get(row.author_login) || 0) + row.count);
+    contributorTotals.set(row.author_login, (contributorTotals.get(row.author_login) || 0) + row.count);
   }
-  const topAuthors = Array.from(authorTotals.entries())
+  const topContributors = Array.from(contributorTotals.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
-    .map(([author]) => author);
+    .map(([contributor]) => contributor);
 
-  // pivot: { month, author1: n, author2: n, Other: n }
   const monthMap = new Map<string, Record<string, number>>();
   for (const row of data) {
     if (!monthMap.has(row.month)) monthMap.set(row.month, {});
     const entry = monthMap.get(row.month)!;
-    if (topAuthors.includes(row.author_login)) {
+    if (topContributors.includes(row.author_login)) {
       entry[row.author_login] = (entry[row.author_login] || 0) + row.count;
     } else {
       entry["Other"] = (entry["Other"] || 0) + row.count;
@@ -65,10 +63,10 @@ export function PRMonthlyChart({ data }: PRMonthlyChartProps) {
 
   const hasOther = Array.from(monthMap.values()).some((e) => e["Other"]);
   const chartData = Array.from(monthMap.entries())
-    .map(([month, authors]) => ({ month, ...authors }))
+    .map(([month, vals]) => ({ month, ...vals }))
     .sort((a, b) => a.month.localeCompare(b.month));
 
-  const allKeys = hasOther ? [...topAuthors, "Other"] : topAuthors;
+  const allKeys = hasOther ? [...topContributors, "Other"] : topContributors;
 
   return (
     <ResponsiveContainer width="100%" height={300}>

@@ -11,17 +11,17 @@ import {
   Legend,
 } from "recharts";
 
-interface ActivityByAuthorRaw {
+interface ActivityByContributorRaw {
   date: string;
   author_login: string;
   commits: number;
 }
 
 interface ActivityStackedChartProps {
-  data: ActivityByAuthorRaw[];
+  data: ActivityByContributorRaw[];
 }
 
-// color palette for different authors
+// color palette for different contributors
 const COLORS = [
   "hsl(222, 47%, 31%)",
   "hsl(173, 58%, 39%)",
@@ -36,23 +36,21 @@ const COLORS = [
 ];
 
 export function ActivityStackedChart({ data }: ActivityStackedChartProps) {
-  // get unique authors and sort by total commits
-  const authorTotals = new Map<string, number>();
+  const contributorTotals = new Map<string, number>();
   for (const row of data) {
-    authorTotals.set(
+    contributorTotals.set(
       row.author_login,
-      (authorTotals.get(row.author_login) || 0) + row.commits
+      (contributorTotals.get(row.author_login) || 0) + row.commits
     );
   }
-  const authors = Array.from(authorTotals.entries())
+  const contributors = Array.from(contributorTotals.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 10)
-    .map(([author]) => author);
+    .map(([contributor]) => contributor);
 
-  // transform data: group by date with each author as a key
   const dateMap = new Map<string, Record<string, number>>();
   for (const row of data) {
-    if (!authors.includes(row.author_login)) continue;
+    if (!contributors.includes(row.author_login)) continue;
     if (!dateMap.has(row.date)) {
       dateMap.set(row.date, {});
     }
@@ -61,9 +59,9 @@ export function ActivityStackedChart({ data }: ActivityStackedChartProps) {
   }
 
   const chartData = Array.from(dateMap.entries())
-    .map(([date, authorCommits]) => ({
+    .map(([date, vals]) => ({
       date,
-      ...authorCommits,
+      ...vals,
     }))
     .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -84,10 +82,10 @@ export function ActivityStackedChart({ data }: ActivityStackedChartProps) {
           labelFormatter={(value) => new Date(value).toLocaleDateString()}
         />
         <Legend />
-        {authors.map((author, idx) => (
+        {contributors.map((contributor, idx) => (
           <Bar
-            key={author}
-            dataKey={author}
+            key={contributor}
+            dataKey={contributor}
             stackId="a"
             fill={COLORS[idx % COLORS.length]}
           />
