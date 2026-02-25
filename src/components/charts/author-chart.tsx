@@ -10,17 +10,16 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-interface AuthorChartProps {
+interface ContributorChartProps {
   data: { author_login: string; commits: number }[];
 }
 
-export function AuthorChart({ data }: AuthorChartProps) {
-  // take top 10 authors
-  const topAuthors = data.slice(0, 10);
+export function ContributorChart({ data }: ContributorChartProps) {
+  const topContributors = data.slice(0, 10);
 
   return (
     <ResponsiveContainer width="100%" height={300}>
-      <BarChart data={topAuthors} layout="vertical">
+      <BarChart data={topContributors} layout="vertical">
         <CartesianGrid strokeDasharray="3 3" />
         <XAxis type="number" tick={{ fontSize: 12 }} />
         <YAxis
