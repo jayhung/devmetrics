@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { MultiSelect, SelectedChips, Option } from "@/components/ui/multi-select";
@@ -16,10 +16,7 @@ import { PRActivityChart } from "@/components/charts/pr-activity-chart";
 import { ReviewActivityChart } from "@/components/charts/review-activity-chart";
 import { GitCommit, GitPullRequest, Users, Plus, Minus, RefreshCw, ChevronUp, ChevronDown } from "lucide-react";
 import { DateRange } from "react-day-picker";
-import {
-  displayContributorName,
-  displayRepositoryName,
-} from "@/lib/display-names";
+import { displayContributorName, displayRepositoryName } from "@/lib/display-names";
 
 interface SyncLog {
   type: "start" | "repo_start" | "progress" | "repo_done" | "complete" | "error";
@@ -45,6 +42,19 @@ interface AuthorMetric {
   merge_rate: number;
 }
 
+interface CombinedAuthorMetric {
+  author_login: string;
+  repo_count: number;
+  commits: number;
+  additions: number;
+  deletions: number;
+  prs_opened: number;
+  prs_merged: number;
+  reviews_given: number;
+  avg_commit_size: number;
+  merge_rate: number;
+}
+
 interface Metrics {
   summary: {
     commits: number;
@@ -54,8 +64,19 @@ interface Metrics {
     mergedPRs: number;
     contributors: number;
   };
-  commitsByAuthor: { author_login: string; commits: number; additions: number; deletions: number }[];
-  commitsByAuthorAndRepo: { author_login: string; repo: string; commits: number; additions: number; deletions: number }[];
+  commitsByAuthor: {
+    author_login: string;
+    commits: number;
+    additions: number;
+    deletions: number;
+  }[];
+  commitsByAuthorAndRepo: {
+    author_login: string;
+    repo: string;
+    commits: number;
+    additions: number;
+    deletions: number;
+  }[];
   prsByAuthor: { author_login: string; total: number; merged: number }[];
   reviewsByReviewer: { reviewer_login: string; total_reviews: number; approvals: number }[];
   activity: { date: string; commits: number }[];
@@ -64,7 +85,12 @@ interface Metrics {
   reviewActivity: { date: string; reviews: number; approvals: number }[];
   linesChanged: { date: string; additions: number; deletions: number }[];
   dataRange: { earliest_commit: string | null; latest_commit: string | null };
-  syncState: { earliest_sync: string | null; latest_sync: string | null; synced_repos: number; total_repos: number };
+  syncState: {
+    earliest_sync: string | null;
+    latest_sync: string | null;
+    synced_repos: number;
+    total_repos: number;
+  };
   authorMetrics: AuthorMetric[];
   lastSyncRun?: {
     id: number;
@@ -80,7 +106,17 @@ interface Metrics {
   };
 }
 
-type SortColumn = "author_login" | "repo" | "commits" | "prs_opened" | "prs_merged" | "reviews_given" | "additions" | "deletions" | "avg_commit_size";
+type SortColumn =
+  | "author_login"
+  | "repo"
+  | "repo_count"
+  | "commits"
+  | "prs_opened"
+  | "prs_merged"
+  | "reviews_given"
+  | "additions"
+  | "deletions"
+  | "avg_commit_size";
 type SortDirection = "asc" | "desc";
 
 const STORAGE_KEY = "devmetrics-filters";
@@ -103,9 +139,7 @@ function saveFilters(repoIds: string[], dateRange: DateRange | undefined) {
   if (typeof window === "undefined") return;
   const data: StoredFilters = {
     repoIds,
-    dateRange: dateRange?.from
-      ? { from: dateRange.from.toISOString(), to: dateRange.to?.toISOString() }
-      : undefined,
+    dateRange: dateRange?.from ? { from: dateRange.from.toISOString(), to: dateRange.to?.toISOString() } : undefined,
   };
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 }
@@ -144,7 +178,12 @@ export default function Dashboard() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [repos, setRepos] = useState<Repo[]>([]);
   const [selectedRepoIds, setSelectedRepoIds] = useState<string[]>([]);
-  const [dateRange, setDateRange] = useState<DateRange | undefined>(undefined);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>(() => {
+    // set default time range to last 90 days
+    const now = new Date();
+    const from = new Date(now.getTime() - 90 * 24 * 60 * 60 * 1000);
+    return { from, to: now };
+  });
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
   const [filtersLoaded, setFiltersLoaded] = useState(false);
@@ -152,8 +191,9 @@ export default function Dashboard() {
   const [showSyncConsole, setShowSyncConsole] = useState(false);
   const [sortColumn, setSortColumn] = useState<SortColumn>("commits");
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [showCombined, setShowCombined] = useState(true);
 
-  const repoOptions: Option[] = repos.map((r) => ({
+  const repoOptions: Option[] = repos.map(r => ({
     value: String(r.id),
     label: displayRepositoryName(r.full_name),
   }));
@@ -170,8 +210,10 @@ export default function Dashboard() {
 
   const sortedAuthorMetrics = metrics?.authorMetrics
     ? [...metrics.authorMetrics].sort((a, b) => {
-        const aVal = a[sortColumn];
-        const bVal = b[sortColumn];
+        // "repo_count" is only valid in combined view; fall back to commits
+        const col: keyof AuthorMetric = sortColumn === "repo_count" ? "commits" : sortColumn;
+        const aVal = a[col];
+        const bVal = b[col];
         if (typeof aVal === "string" && typeof bVal === "string") {
           const aStr =
             sortColumn === "author_login"
@@ -185,19 +227,54 @@ export default function Dashboard() {
               : sortColumn === "repo"
                 ? displayRepositoryName(bVal)
                 : bVal;
-          return sortDirection === "asc"
-            ? aStr.localeCompare(bStr)
-            : bStr.localeCompare(aStr);
+          return sortDirection === "asc" ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
         }
-        return sortDirection === "asc"
-          ? (aVal as number) - (bVal as number)
-          : (bVal as number) - (aVal as number);
+        return sortDirection === "asc" ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
       })
     : [];
 
+  const combinedAuthorMetrics = useMemo((): CombinedAuthorMetric[] => {
+    if (!metrics?.authorMetrics) return [];
+    const map = new Map<string, CombinedAuthorMetric>();
+    for (const row of metrics.authorMetrics) {
+      const existing = map.get(row.author_login);
+      if (existing) {
+        existing.commits += row.commits;
+        existing.additions += row.additions;
+        existing.deletions += row.deletions;
+        existing.prs_opened += row.prs_opened;
+        existing.prs_merged += row.prs_merged;
+        existing.reviews_given += row.reviews_given;
+        existing.repo_count += 1;
+      } else {
+        map.set(row.author_login, { ...row, repo_count: 1 });
+      }
+    }
+    for (const row of map.values()) {
+      row.avg_commit_size = row.commits > 0 ? Math.round((row.additions + row.deletions) / row.commits) : 0;
+      row.merge_rate = row.prs_opened > 0 ? Math.round((row.prs_merged / row.prs_opened) * 100) : 0;
+    }
+    return [...map.values()];
+  }, [metrics?.authorMetrics]);
+
+  const sortedCombinedMetrics = useMemo((): CombinedAuthorMetric[] => {
+    return [...combinedAuthorMetrics].sort((a, b) => {
+      if (sortColumn === "author_login") {
+        const aStr = displayContributorName(a.author_login);
+        const bStr = displayContributorName(b.author_login);
+        return sortDirection === "asc" ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
+      }
+      // map "repo" to "repo_count" in combined view
+      const col: keyof CombinedAuthorMetric = sortColumn === "repo" ? "repo_count" : sortColumn;
+      const aVal = a[col] as number;
+      const bVal = b[col] as number;
+      return sortDirection === "asc" ? aVal - bVal : bVal - aVal;
+    });
+  }, [combinedAuthorMetrics, sortColumn, sortDirection]);
+
   const SortHeader = ({ column, label, className = "" }: { column: SortColumn; label: string; className?: string }) => (
     <th
-      className={`py-2 px-4 cursor-pointer hover:bg-muted/50 select-none ${className}`}
+      className={`cursor-pointer select-none px-4 py-2 hover:bg-muted/50 ${className}`}
       onClick={() => handleSort(column)}
     >
       <div className={`flex items-center gap-1 ${className.includes("text-right") ? "justify-end" : ""}`}>
@@ -309,10 +386,7 @@ export default function Dashboard() {
           if (line.startsWith("data: ")) {
             try {
               const event = JSON.parse(line.slice(6));
-              setSyncLogs((prev) => [
-                ...prev,
-                { ...event, timestamp: new Date() },
-              ]);
+              setSyncLogs(prev => [...prev, { ...event, timestamp: new Date() }]);
             } catch {
               // ignore parse errors
             }
@@ -324,7 +398,7 @@ export default function Dashboard() {
       await fetchRepos();
     } catch (error) {
       console.error("Sync failed:", error);
-      setSyncLogs((prev) => [
+      setSyncLogs(prev => [
         ...prev,
         {
           type: "error",
@@ -351,7 +425,7 @@ export default function Dashboard() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center h-64">
+      <div className="flex h-64 items-center justify-center">
         <p className="text-muted-foreground">Loading metrics...</p>
       </div>
     );
@@ -359,10 +433,14 @@ export default function Dashboard() {
 
   if (!metrics) {
     return (
-      <div className="flex flex-col items-center justify-center h-64 gap-4">
+      <div className="flex h-64 flex-col items-center justify-center gap-4">
         <p className="text-muted-foreground">No metrics available.</p>
         <p className="text-sm text-muted-foreground">
-          Add repositories in the <a href="/config" className="underline">config page</a> and sync data.
+          Add repositories in the{" "}
+          <a href="/config" className="underline">
+            config page
+          </a>{" "}
+          and sync data.
         </p>
       </div>
     );
@@ -373,14 +451,14 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-bold">Dashboard</h2>
         <Button onClick={handleSync} disabled={syncing}>
-          <RefreshCw className={`h-4 w-4 mr-2 ${syncing ? "animate-spin" : ""}`} />
+          <RefreshCw className={`mr-2 h-4 w-4 ${syncing ? "animate-spin" : ""}`} />
           {syncing ? "Syncing..." : "Sync Data"}
         </Button>
       </div>
 
       {/* filters */}
       <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap gap-3 items-center">
+        <div className="flex flex-wrap items-center gap-3">
           <MultiSelect
             options={repoOptions}
             selected={selectedRepoIds}
@@ -397,7 +475,7 @@ export default function Dashboard() {
         <SelectedChips
           options={repoOptions}
           selected={selectedRepoIds}
-          onRemove={(id) => setSelectedRepoIds(selectedRepoIds.filter((v) => v !== id))}
+          onRemove={id => setSelectedRepoIds(selectedRepoIds.filter(v => v !== id))}
         />
         {/* data info bar */}
         <div className="flex flex-wrap gap-4 text-xs text-muted-foreground">
@@ -408,10 +486,7 @@ export default function Dashboard() {
               : "No data"}
           </span>
           <span>
-            Synced:{" "}
-            {metrics.syncState.synced_repos > 0
-              ? formatRelativeTime(metrics.syncState.latest_sync)
-              : "never"}
+            Synced: {metrics.syncState.synced_repos > 0 ? formatRelativeTime(metrics.syncState.latest_sync) : "never"}
           </span>
           <span>
             {metrics.syncState.synced_repos}/{metrics.syncState.total_repos} repos
@@ -422,20 +497,20 @@ export default function Dashboard() {
                 metrics.lastSyncRun.status === "complete"
                   ? "text-green-600"
                   : metrics.lastSyncRun.status === "partial"
-                  ? "text-yellow-600"
-                  : metrics.lastSyncRun.status === "error"
-                  ? "text-red-600"
-                  : "text-blue-600"
+                    ? "text-yellow-600"
+                    : metrics.lastSyncRun.status === "error"
+                      ? "text-red-600"
+                      : "text-blue-600"
               }
             >
               Last sync:{" "}
               {metrics.lastSyncRun.status === "running"
                 ? `running (${metrics.lastSyncRun.completed_repos}/${metrics.lastSyncRun.total_repos})`
                 : metrics.lastSyncRun.status === "complete"
-                ? "success"
-                : metrics.lastSyncRun.status === "partial"
-                ? `partial (${metrics.lastSyncRun.completed_repos}/${metrics.lastSyncRun.total_repos})`
-                : "failed"}
+                  ? "success"
+                  : metrics.lastSyncRun.status === "partial"
+                    ? `partial (${metrics.lastSyncRun.completed_repos}/${metrics.lastSyncRun.total_repos})`
+                    : "failed"}
             </span>
           )}
         </div>
@@ -460,9 +535,7 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">{metrics.summary.pullRequests.toLocaleString()}</div>
-            <p className="text-xs text-muted-foreground">
-              {metrics.summary.mergedPRs} merged
-            </p>
+            <p className="text-xs text-muted-foreground">{metrics.summary.mergedPRs} merged</p>
           </CardContent>
         </Card>
 
@@ -503,13 +576,13 @@ export default function Dashboard() {
           <CardContent>
             {metrics.commitsByAuthor.length > 0 ? (
               <AuthorChart
-                data={metrics.commitsByAuthor.map((a) => ({
+                data={metrics.commitsByAuthor.map(a => ({
                   ...a,
                   author_login: displayContributorName(a.author_login),
                 }))}
               />
             ) : (
-              <p className="text-muted-foreground text-center py-8">No contributor data</p>
+              <p className="py-8 text-center text-muted-foreground">No contributor data</p>
             )}
           </CardContent>
         </Card>
@@ -522,7 +595,7 @@ export default function Dashboard() {
             {metrics.activity.length > 0 ? (
               <ActivityChart data={metrics.activity} />
             ) : (
-              <p className="text-muted-foreground text-center py-8">No activity data</p>
+              <p className="py-8 text-center text-muted-foreground">No activity data</p>
             )}
           </CardContent>
         </Card>
@@ -534,13 +607,13 @@ export default function Dashboard() {
           <CardContent>
             {metrics.prsByAuthor.length > 0 ? (
               <PRAuthorChart
-                data={metrics.prsByAuthor.map((a) => ({
+                data={metrics.prsByAuthor.map(a => ({
                   ...a,
                   author_login: displayContributorName(a.author_login),
                 }))}
               />
             ) : (
-              <p className="text-muted-foreground text-center py-8">No PR data</p>
+              <p className="py-8 text-center text-muted-foreground">No PR data</p>
             )}
           </CardContent>
         </Card>
@@ -552,13 +625,13 @@ export default function Dashboard() {
           <CardContent>
             {metrics.reviewsByReviewer.length > 0 ? (
               <ReviewAuthorChart
-                data={metrics.reviewsByReviewer.map((r) => ({
+                data={metrics.reviewsByReviewer.map(r => ({
                   ...r,
                   reviewer_login: displayContributorName(r.reviewer_login),
                 }))}
               />
             ) : (
-              <p className="text-muted-foreground text-center py-8">No review data</p>
+              <p className="py-8 text-center text-muted-foreground">No review data</p>
             )}
           </CardContent>
         </Card>
@@ -571,7 +644,7 @@ export default function Dashboard() {
             {metrics.prActivity.length > 0 ? (
               <PRActivityChart data={metrics.prActivity} />
             ) : (
-              <p className="text-muted-foreground text-center py-8">No PR activity data</p>
+              <p className="py-8 text-center text-muted-foreground">No PR activity data</p>
             )}
           </CardContent>
         </Card>
@@ -584,7 +657,7 @@ export default function Dashboard() {
             {metrics.reviewActivity.length > 0 ? (
               <ReviewActivityChart data={metrics.reviewActivity} />
             ) : (
-              <p className="text-muted-foreground text-center py-8">No review activity data</p>
+              <p className="py-8 text-center text-muted-foreground">No review activity data</p>
             )}
           </CardContent>
         </Card>
@@ -597,7 +670,7 @@ export default function Dashboard() {
             {metrics.linesChanged.length > 0 ? (
               <LinesChangedChart data={metrics.linesChanged} />
             ) : (
-              <p className="text-muted-foreground text-center py-8">No line change data</p>
+              <p className="py-8 text-center text-muted-foreground">No line change data</p>
             )}
           </CardContent>
         </Card>
@@ -609,13 +682,13 @@ export default function Dashboard() {
           <CardContent>
             {metrics.activityByAuthor.length > 0 ? (
               <ActivityStackedChart
-                data={metrics.activityByAuthor.map((a) => ({
+                data={metrics.activityByAuthor.map(a => ({
                   ...a,
                   author_login: displayContributorName(a.author_login),
                 }))}
               />
             ) : (
-              <p className="text-muted-foreground text-center py-8">No activity data</p>
+              <p className="py-8 text-center text-muted-foreground">No activity data</p>
             )}
           </CardContent>
         </Card>
@@ -623,8 +696,16 @@ export default function Dashboard() {
 
       {/* contributor table */}
       <Card>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between">
           <CardTitle>Contributor Details</CardTitle>
+          <div className="flex gap-1">
+            <Button variant={showCombined ? "default" : "outline"} size="sm" onClick={() => setShowCombined(true)}>
+              Combined
+            </Button>
+            <Button variant={!showCombined ? "default" : "outline"} size="sm" onClick={() => setShowCombined(false)}>
+              By Project
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="overflow-x-auto">
@@ -632,7 +713,11 @@ export default function Dashboard() {
               <thead>
                 <tr className="border-b">
                   <SortHeader column="author_login" label="Author" className="text-left" />
-                  <SortHeader column="repo" label="Repository" className="text-left" />
+                  {showCombined ? (
+                    <SortHeader column="repo_count" label="Repos" className="text-right" />
+                  ) : (
+                    <SortHeader column="repo" label="Repository" className="text-left" />
+                  )}
                   <SortHeader column="commits" label="Commits" className="text-right" />
                   <SortHeader column="prs_opened" label="PRs" className="text-right" />
                   <SortHeader column="prs_merged" label="Merged" className="text-right" />
@@ -643,47 +728,54 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {sortedAuthorMetrics.map((row, idx) => (
-                  <tr key={`${row.author_login}-${row.repo}-${idx}`} className="border-b hover:bg-muted/30">
-                    <td className="py-2 px-4 font-medium">
-                      {displayContributorName(row.author_login)}
-                    </td>
-                    <td className="py-2 px-4 text-muted-foreground">
-                      {displayRepositoryName(row.repo)}
-                    </td>
-                    <td className="text-right py-2 px-4">{row.commits.toLocaleString()}</td>
-                    <td className="text-right py-2 px-4">{row.prs_opened}</td>
-                    <td className="text-right py-2 px-4" title={`${row.merge_rate}% merge rate`}>
-                      <span>{row.prs_merged}</span>
-                      {row.prs_opened > 0 && (
-                        <span className="text-xs text-muted-foreground ml-1">
-                          ({row.merge_rate}%)
-                        </span>
-                      )}
-                    </td>
-                    <td className="text-right py-2 px-4">{row.reviews_given}</td>
-                    <td className="text-right py-2 px-4 text-muted-foreground">
-                      {row.avg_commit_size.toLocaleString()}
-                    </td>
-                    <td className="text-right py-2 px-4 text-green-600">
-                      +{row.additions.toLocaleString()}
-                    </td>
-                    <td className="text-right py-2 px-4 text-red-600">
-                      -{row.deletions.toLocaleString()}
-                    </td>
-                  </tr>
-                ))}
+                {showCombined
+                  ? sortedCombinedMetrics.map(row => (
+                      <tr key={row.author_login} className="border-b hover:bg-muted/30">
+                        <td className="px-4 py-2 font-medium">{displayContributorName(row.author_login)}</td>
+                        <td className="px-4 py-2 text-right text-muted-foreground">{row.repo_count}</td>
+                        <td className="px-4 py-2 text-right">{row.commits.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-right">{row.prs_opened}</td>
+                        <td className="px-4 py-2 text-right" title={`${row.merge_rate}% merge rate`}>
+                          <span>{row.prs_merged}</span>
+                          {row.prs_opened > 0 && (
+                            <span className="ml-1 text-xs text-muted-foreground">({row.merge_rate}%)</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 text-right">{row.reviews_given}</td>
+                        <td className="px-4 py-2 text-right text-muted-foreground">
+                          {row.avg_commit_size.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 text-right text-green-600">+{row.additions.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-right text-red-600">-{row.deletions.toLocaleString()}</td>
+                      </tr>
+                    ))
+                  : sortedAuthorMetrics.map((row, idx) => (
+                      <tr key={`${row.author_login}-${row.repo}-${idx}`} className="border-b hover:bg-muted/30">
+                        <td className="px-4 py-2 font-medium">{displayContributorName(row.author_login)}</td>
+                        <td className="px-4 py-2 text-muted-foreground">{displayRepositoryName(row.repo)}</td>
+                        <td className="px-4 py-2 text-right">{row.commits.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-right">{row.prs_opened}</td>
+                        <td className="px-4 py-2 text-right" title={`${row.merge_rate}% merge rate`}>
+                          <span>{row.prs_merged}</span>
+                          {row.prs_opened > 0 && (
+                            <span className="ml-1 text-xs text-muted-foreground">({row.merge_rate}%)</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2 text-right">{row.reviews_given}</td>
+                        <td className="px-4 py-2 text-right text-muted-foreground">
+                          {row.avg_commit_size.toLocaleString()}
+                        </td>
+                        <td className="px-4 py-2 text-right text-green-600">+{row.additions.toLocaleString()}</td>
+                        <td className="px-4 py-2 text-right text-red-600">-{row.deletions.toLocaleString()}</td>
+                      </tr>
+                    ))}
               </tbody>
             </table>
           </div>
         </CardContent>
       </Card>
 
-      <SyncConsole
-        logs={syncLogs}
-        isOpen={showSyncConsole}
-        onClose={() => setShowSyncConsole(false)}
-      />
+      <SyncConsole logs={syncLogs} isOpen={showSyncConsole} onClose={() => setShowSyncConsole(false)} />
     </div>
   );
 }

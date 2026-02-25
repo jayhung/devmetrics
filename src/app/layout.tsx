@@ -12,19 +12,15 @@ export const metadata: Metadata = {
   description: "GitHub developer productivity metrics",
 };
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en">
       <body className={inter.className}>
-        <div className="min-h-screen bg-background flex flex-col">
+        <div className="flex min-h-screen flex-col bg-background">
           <header className="border-b">
-            <div className="container mx-auto px-4 py-4 flex items-center justify-between">
-              <h1 className="text-xl font-semibold flex items-center">
-                <ChartBarIcon className="h-6 w-6 mr-2 text-green-600" />
+            <div className="container mx-auto flex items-center justify-between px-4 py-4">
+              <h1 className="flex items-center text-xl font-semibold">
+                <ChartBarIcon className="mr-2 h-6 w-6 text-green-600" />
                 {title}
               </h1>
               <nav className="flex gap-4">
@@ -40,12 +36,12 @@ export default function RootLayout({
               </nav>
             </div>
           </header>
-          <main className="container mx-auto px-4 py-6 flex-1">{children}</main>
-          <footer className="border-t mt-auto">
-            <div className="container mx-auto px-4 py-4 flex items-center justify-between text-sm text-muted-foreground">
+          <main className="container mx-auto flex-1 px-4 py-6">{children}</main>
+          <footer className="mt-auto border-t">
+            <div className="container mx-auto flex items-center justify-between px-4 py-4 text-sm text-muted-foreground">
               <div className="flex items-center">
-                <ChartBarIcon className="h-4 w-4 mr-1 text-green-600" />
-                <span className="font-medium">devmetrics</span> v0.2.0
+                <ChartBarIcon className="mr-1 h-4 w-4 text-green-600" />
+                <span className="mr-1 font-medium">devmetrics</span> v0.2.0
               </div>
               <div className="flex gap-4">
                 <a href="/changelog" className="hover:text-primary">
