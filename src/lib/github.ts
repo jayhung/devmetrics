@@ -19,7 +19,7 @@ function validateToken(): string {
   if (!token || token === "your_github_token_here") {
     throw new GitHubConfigError(
       "GitHub token not configured. Please set GITHUB_TOKEN in your .env.local file. " +
-      "See https://github.com/settings/tokens to create a token with 'repo' scope."
+        "See https://github.com/settings/tokens to create a token with 'repo' scope."
     );
   }
   return token;
@@ -43,7 +43,7 @@ export function getOctokit(): Octokit {
 // for backwards compatibility
 export const octokit = new Proxy({} as Octokit, {
   get(_, prop) {
-    return (getOctokit() as Record<string | symbol, unknown>)[prop];
+    return (getOctokit() as unknown as Record<string | symbol, unknown>)[prop];
   },
 });
 
@@ -94,7 +94,7 @@ async function throttle() {
   const now = Date.now();
   const timeSinceLastRequest = now - lastRequestTime;
   if (timeSinceLastRequest < THROTTLE_MS) {
-    await new Promise((resolve) => setTimeout(resolve, THROTTLE_MS - timeSinceLastRequest));
+    await new Promise(resolve => setTimeout(resolve, THROTTLE_MS - timeSinceLastRequest));
   }
   lastRequestTime = Date.now();
 }
@@ -155,7 +155,7 @@ export async function fetchCommits(
     for (let i = 0; i < response.data.length; i++) {
       const commit = response.data[i];
       await throttle();
-      
+
       // check rate limit periodically
       if (i % 10 === 0) {
         await checkRateLimit(5);
@@ -232,7 +232,7 @@ export async function fetchPullRequests(
     let foundOlder = false;
     for (let i = 0; i < response.data.length; i++) {
       const pr = response.data[i];
-      
+
       // skip PRs older than since date (for incremental sync)
       if (sinceDate && new Date(pr.updated_at) < sinceDate) {
         foundOlder = true;
@@ -240,7 +240,7 @@ export async function fetchPullRequests(
       }
 
       await throttle();
-      
+
       // check rate limit periodically
       if (i % 10 === 0) {
         await checkRateLimit(5);
@@ -296,7 +296,7 @@ export async function fetchReviews(owner: string, repo: string, prNumber: number
     pull_number: prNumber,
   });
 
-  return response.data.map((review) => ({
+  return response.data.map(review => ({
     id: review.id,
     reviewer_login: review.user?.login || "unknown",
     state: review.state,
@@ -312,8 +312,7 @@ export async function fetchReviews(owner: string, repo: string, prNumber: number
  */
 export async function fetchAvailableRepos(perPage = 100) {
   const client = getOctokit();
-  const repos: { id: number; full_name: string; owner: string; name: string; private: boolean }[] =
-    [];
+  const repos: { id: number; full_name: string; owner: string; name: string; private: boolean }[] = [];
   let page = 1;
 
   while (true) {
