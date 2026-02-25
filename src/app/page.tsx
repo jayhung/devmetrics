@@ -95,6 +95,8 @@ interface Metrics {
   linesChangedByContributor: { date: string; author_login: string; additions: number; deletions: number }[];
   mergedPRsByMonth: { month: string; author_login: string; count: number }[];
   reviewsByMonth: { month: string; reviewer_login: string; count: number }[];
+  mergedPRsByDay: { date: string; author_login: string; count: number }[];
+  reviewsByDay: { date: string; reviewer_login: string; count: number }[];
   dataRange: { earliest_commit: string | null; latest_commit: string | null };
   syncState: {
     earliest_sync: string | null;
@@ -206,6 +208,8 @@ export default function Dashboard() {
   const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
   const [showCombined, setShowCombined] = useState(true);
   const [linesChangedMode, setLinesChangedMode] = useState<LinesChangedMode>("combined");
+  const [cadenceView, setCadenceView] = useState<"heatmap" | "line">("heatmap");
+  const [cadenceData, setCadenceData] = useState<"prs" | "reviews">("prs");
 
   const repoOptions: Option[] = repos.map(r => ({
     value: String(r.id),
@@ -779,20 +783,54 @@ export default function Dashboard() {
         </Card>
 
         <Card className="md:col-span-2">
-          <CardHeader>
+          <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle>Contributor Cadence</CardTitle>
+            <div className="flex items-center gap-3">
+              <div className="flex gap-1">
+                {(["heatmap", "line"] as const).map((v) => (
+                  <button
+                    key={v}
+                    className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                      cadenceView === v
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                    onClick={() => setCadenceView(v)}
+                  >
+                    {v === "heatmap" ? "Heatmap" : "Line"}
+                  </button>
+                ))}
+              </div>
+              <div className="flex gap-1">
+                {(["prs", "reviews"] as const).map((m) => (
+                  <button
+                    key={m}
+                    className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                      cadenceData === m
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted text-muted-foreground hover:bg-muted/80"
+                    }`}
+                    onClick={() => setCadenceData(m)}
+                  >
+                    {m === "prs" ? "Merged PRs" : "Reviews"}
+                  </button>
+                ))}
+              </div>
+            </div>
           </CardHeader>
           <CardContent>
-            {metrics.mergedPRsByMonth.length > 0 || metrics.reviewsByMonth.length > 0 ? (
+            {metrics.mergedPRsByDay.length > 0 || metrics.reviewsByDay.length > 0 ? (
               <CadenceChart
-                prData={metrics.mergedPRsByMonth.map(r => ({
+                prData={metrics.mergedPRsByDay.map(r => ({
                   ...r,
                   author_login: displayContributorName(r.author_login),
                 }))}
-                reviewData={metrics.reviewsByMonth.map(r => ({
+                reviewData={metrics.reviewsByDay.map(r => ({
                   ...r,
                   reviewer_login: displayContributorName(r.reviewer_login),
                 }))}
+                view={cadenceView}
+                dataMode={cadenceData}
               />
             ) : (
               <p className="py-8 text-center text-muted-foreground">No cadence data</p>
@@ -800,6 +838,45 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle>Lines Changed Over Time</CardTitle>
+          <div className="flex gap-1">
+            {(["combined", "byProject", "byContributor"] as const).map(m => (
+              <button
+                key={m}
+                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
+                  linesChangedMode === m
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-muted text-muted-foreground hover:bg-muted/80"
+                }`}
+                onClick={() => setLinesChangedMode(m)}
+              >
+                {m === "combined" ? "Combined" : m === "byProject" ? "By Project" : "By Contributor"}
+              </button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent>
+          {metrics.linesChanged.length > 0 ? (
+            <LinesChangedChart
+              data={metrics.linesChanged}
+              byRepo={metrics.linesChangedByRepo.map(r => ({
+                ...r,
+                repo: displayRepositoryName(r.repo),
+              }))}
+              byContributor={metrics.linesChangedByContributor.map(r => ({
+                ...r,
+                author_login: displayContributorName(r.author_login),
+              }))}
+              mode={linesChangedMode}
+            />
+          ) : (
+            <p className="py-8 text-center text-muted-foreground">No line change data</p>
+          )}
+        </CardContent>
+      </Card>
 
       {/* contributor table */}
       <Card>
@@ -907,45 +984,6 @@ export default function Dashboard() {
               </tbody>
             </table>
           </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle>Lines Changed Over Time</CardTitle>
-          <div className="flex gap-1">
-            {(["combined", "byProject", "byContributor"] as const).map(m => (
-              <button
-                key={m}
-                className={`rounded px-3 py-1 text-xs font-medium transition-colors ${
-                  linesChangedMode === m
-                    ? "bg-primary text-primary-foreground"
-                    : "bg-muted text-muted-foreground hover:bg-muted/80"
-                }`}
-                onClick={() => setLinesChangedMode(m)}
-              >
-                {m === "combined" ? "Combined" : m === "byProject" ? "By Project" : "By Contributor"}
-              </button>
-            ))}
-          </div>
-        </CardHeader>
-        <CardContent>
-          {metrics.linesChanged.length > 0 ? (
-            <LinesChangedChart
-              data={metrics.linesChanged}
-              byRepo={metrics.linesChangedByRepo.map(r => ({
-                ...r,
-                repo: displayRepositoryName(r.repo),
-              }))}
-              byContributor={metrics.linesChangedByContributor.map(r => ({
-                ...r,
-                author_login: displayContributorName(r.author_login),
-              }))}
-              mode={linesChangedMode}
-            />
-          ) : (
-            <p className="py-8 text-center text-muted-foreground">No line change data</p>
-          )}
         </CardContent>
       </Card>
 

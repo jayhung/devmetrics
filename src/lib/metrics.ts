@@ -724,6 +724,71 @@ export function getReviewsByMonth(filters: Filters = {}) {
     .all(...params) as { month: string; reviewer_login: string; count: number }[];
 }
 
+/** Returns daily merged PR counts grouped by contributor for cadence chart */
+export function getMergedPRsByDay(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("merged_at", filters);
+  const repoFilter = buildRepoFilter("repo_id", filters);
+
+  const whereClause: string[] = ["merged_at IS NOT NULL", "author_login IS NOT NULL"];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  return db
+    .prepare(
+      `SELECT 
+        DATE(merged_at) as date,
+        author_login,
+        COUNT(*) as count
+       FROM pull_requests
+       WHERE ${whereClause.join(" AND ")}
+       GROUP BY date, author_login
+       ORDER BY date ASC`
+    )
+    .all(...params) as { date: string; author_login: string; count: number }[];
+}
+
+/** Returns daily review counts grouped by reviewer for cadence chart */
+export function getReviewsByDay(filters: Filters = {}) {
+  const db = getDb();
+  const dateFilter = buildDateFilter("r.submitted_at", filters);
+  const repoFilter = buildRepoFilter("pr.repo_id", filters);
+
+  const whereClause: string[] = ["r.reviewer_login IS NOT NULL"];
+  const params: (string | number)[] = [];
+
+  if (dateFilter.conditions.length > 0) {
+    whereClause.push(...dateFilter.conditions);
+    params.push(...dateFilter.params);
+  }
+  if (repoFilter.condition) {
+    whereClause.push(repoFilter.condition);
+    params.push(...repoFilter.params);
+  }
+
+  return db
+    .prepare(
+      `SELECT 
+        DATE(r.submitted_at) as date,
+        r.reviewer_login,
+        COUNT(*) as count
+       FROM reviews r
+       JOIN pull_requests pr ON r.pr_id = pr.id
+       WHERE ${whereClause.join(" AND ")}
+       GROUP BY date, r.reviewer_login
+       ORDER BY date ASC`
+    )
+    .all(...params) as { date: string; reviewer_login: string; count: number }[];
+}
+
 /** Returns daily line changes grouped by repo */
 export function getLinesChangedByRepo(filters: Filters = {}) {
   const db = getDb();
